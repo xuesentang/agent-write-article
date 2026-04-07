@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  # Redis 服务 (用于缓存和消息队列)
+  redis:
+    image: redis:7-alpine
+    container_name: article-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # 后端服务 (开发模式)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: article-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./writearticle-venv:/app/.venv
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./data/article.db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DEBUG=true
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # 前端服务 (开发模式)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: article-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_BASE_URL=http://backend:8000/api
+    depends_on:
+      - backend
+    command: npm run dev -- --host 0.0.0.0
+
+volumes:
+  redis_data:
+
+# 注意: Dockerfile.dev 文件需要单独创建
+# 此配置主要用于本地开发环境的快速部署
