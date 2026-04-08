@@ -1,13 +1,46 @@
 """
-配图服务提供商模块初始化
+图片服务提供商模块初始化
+导出所有图片服务实现
 """
 
-# TODO: 后续添加各配图服务提供商
-# from app.image.providers.pexels import PexelsService
-# from app.image.providers.mermaid import MermaidService
-# from app.image.providers.iconify import IconifyService
-# from app.image.providers.svg_diagram import SvgDiagramService
-# from app.image.providers.seedream import SeedreamService
-# from app.image.providers.picsum import PicsumService
+from app.image.base_provider import BaseImageProvider
+from app.image.providers.pexels_service import (
+    PexelsService,
+    MockPexelsService,
+    create_pexels_service,
+)
+from app.image.providers.iconify_service import (
+    IconifyService,
+    MockIconifyService,
+    create_iconify_service,
+)
+from app.image.providers.seedream_service import (
+    SeedreamService,
+    MockSeedreamService,
+    create_seedream_service,
+)
+from app.image.providers.picsum_service import (
+    PicsumService,
+    MockPicsumService,
+    create_picsum_service,
+)
 
-__all__ = []
+__all__ = [
+    "BaseImageProvider",
+    # Pexels
+    "PexelsService",
+    "MockPexelsService",
+    "create_pexels_service",
+    # Iconify
+    "IconifyService",
+    "MockIconifyService",
+    "create_iconify_service",
+    # Seedream
+    "SeedreamService",
+    "MockSeedreamService",
+    "create_seedream_service",
+    # Picsum
+    "PicsumService",
+    "MockPicsumService",
+    "create_picsum_service",
+]

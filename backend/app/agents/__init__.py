@@ -28,10 +28,23 @@ from app.agents.content_agent import (
     create_content_agent,
     MOCK_CONTENT_RESPONSE,
 )
-
-# TODO: 后续添加其他智能体类
-# from app.agents.image_analyzer_agent import ImageAnalyzerAgent
-# from app.agents.image_generator_agent import ImageGeneratorAgent
+from app.agents.image_analyzer_agent import (
+    ImageAnalyzerAgent,
+    ImageAnalyzerInput,
+    ImageAnalyzerOutput,
+    PlaceholderParseResult,
+    PlaceholderParseError,
+    create_image_analyzer_agent,
+    EXAMPLE_CONTENT_WITH_PLACEHOLDERS,
+    EXAMPLE_CONTENT_NO_PLACEHOLDERS,
+    EXAMPLE_CONTENT_INVALID_PLACEHOLDER,
+)
+from app.agents.image_generator_agent import (
+    ImageGeneratorAgent,
+    ImageGeneratorInput,
+    ImageGeneratorOutput,
+    create_image_generator_agent,
+)
 
 __all__ = [
     "BaseAgent",
@@ -58,4 +71,19 @@ __all__ = [
     "ImagePlaceholder",
     "create_content_agent",
     "MOCK_CONTENT_RESPONSE",
+    # ImageAnalyzerAgent
+    "ImageAnalyzerAgent",
+    "ImageAnalyzerInput",
+    "ImageAnalyzerOutput",
+    "PlaceholderParseResult",
+    "PlaceholderParseError",
+    "create_image_analyzer_agent",
+    "EXAMPLE_CONTENT_WITH_PLACEHOLDERS",
+    "EXAMPLE_CONTENT_NO_PLACEHOLDERS",
+    "EXAMPLE_CONTENT_INVALID_PLACEHOLDER",
+    # ImageGeneratorAgent
+    "ImageGeneratorAgent",
+    "ImageGeneratorInput",
+    "ImageGeneratorOutput",
+    "create_image_generator_agent",
 ]

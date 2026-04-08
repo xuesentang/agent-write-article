@@ -438,7 +438,7 @@
       search_keywords: List[str] # 搜索关键词
       prompt: str               # AI 绘图提示词（文生图时使用）
       priority: int             # 优先级 1-5
-      provider_hint: str        # 建议的配图服务 "pexels图库提供免费图片（API KEY已配置）", "seedream 5.0模型AI生成图片（API KEY已配置）", "mermaid"...
+      provider_hint: str        # 建议的配图服务 "pexels图库提供免费图片（API KEY已配置）", "seedream 5.0模型AI生成图片（API KEY已配置）", "Iconify公开API地址（.env文件中已标明）"...
 
   # 接口签名
   async def execute(input: ImageAnalyzerInput) -> ImageAnalyzerOutput

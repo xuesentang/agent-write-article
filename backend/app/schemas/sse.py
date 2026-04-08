@@ -4,7 +4,7 @@ SSE (Server-Sent Events) 数据结构定义
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, Any, List
+from typing import Optional, Any, List, Dict
 from enum import Enum
 
 
@@ -27,8 +27,10 @@ class SSEEventType(str, Enum):
     CONTENT_COMPLETE = "content_complete"
 
     # 配图生成相关
-    IMAGE_PROGRESS = "image_progress"
-    IMAGE_COMPLETE = "image_complete"
+    IMAGE_TASK_START = "image_task_start"      # 图片任务开始
+    IMAGE_PROGRESS = "image_progress"          # 图片生成进度
+    IMAGE_COMPLETE = "image_complete"          # 单张图片完成
+    IMAGE_ALL_COMPLETE = "image_all_complete"  # 所有图片任务完成
 
     # 通用事件
     PROGRESS = "progress"  # 进度更新
@@ -172,3 +174,27 @@ class DoneEventData(BaseModel):
 
     article_id: str = Field(..., description="生成的文章 ID")
     message: str = Field(default="文章生成完成", description="完成消息")
+
+
+class ImageTaskStartEventData(BaseModel):
+    """图片任务开始事件数据"""
+
+    task_id: str = Field(..., description="文章生成任务ID")
+    total_image_tasks: int = Field(..., ge=0, description="图片任务总数")
+    placeholders: List[str] = Field(
+        default_factory=list,
+        description="占位符ID列表"
+    )
+
+
+class ImageAllCompleteEventData(BaseModel):
+    """所有图片任务完成事件数据"""
+
+    task_id: str = Field(..., description="文章生成任务ID")
+    total_count: int = Field(..., ge=0, description="处理总数")
+    success_count: int = Field(..., ge=0, description="成功数量")
+    failed_count: int = Field(..., ge=0, description="失败数量")
+    results: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="结果摘要列表"
+    )

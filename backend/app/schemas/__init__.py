@@ -20,6 +20,22 @@ from app.schemas.sse import (
     ErrorEventData,
     DoneEventData,
 )
+from app.schemas.image import (
+    ImageType,
+    ImageProvider,
+    ImageTaskStatus,
+    ImageTask,
+    ImageTaskList,
+    ImageFetchResult,
+    ImageResult,
+    ImageResultList,
+    ImageAnalyzerInput,
+    ImageAnalyzerOutput,
+    ImageGeneratorInput,
+    ImageGeneratorOutput,
+    ImageTaskStartEventData,
+    ImageAllCompleteEventData,
+)
 
 __all__ = [
     "ApiResponse",
@@ -41,4 +57,19 @@ __all__ = [
     "ImageCompleteEventData",
     "ErrorEventData",
     "DoneEventData",
+    # 图片相关
+    "ImageType",
+    "ImageProvider",
+    "ImageTaskStatus",
+    "ImageTask",
+    "ImageTaskList",
+    "ImageFetchResult",
+    "ImageResult",
+    "ImageResultList",
+    "ImageAnalyzerInput",
+    "ImageAnalyzerOutput",
+    "ImageGeneratorInput",
+    "ImageGeneratorOutput",
+    "ImageTaskStartEventData",
+    "ImageAllCompleteEventData",
 ]

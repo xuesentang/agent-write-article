@@ -22,6 +22,8 @@ from app.schemas.sse import (
     ContentCompleteEventData,
     ImageProgressEventData,
     ImageCompleteEventData,
+    ImageTaskStartEventData,
+    ImageAllCompleteEventData,
     ErrorEventData,
     DoneEventData,
 )
@@ -352,6 +354,52 @@ class SSEManager:
             data=DoneEventData(article_id=article_id).model_dump(),
             progress=100,
             message="文章生成完成",
+        )
+
+    async def send_image_task_start(
+        self,
+        task_id: str,
+        total_image_tasks: int,
+        placeholders: list,
+        progress: int = 60,
+    ) -> bool:
+        """发送图片任务开始事件"""
+        return await self.send_event(
+            task_id=task_id,
+            event_type=SSEEventType.IMAGE_TASK_START,
+            stage=SSEStage.IMAGE,
+            data={
+                "task_id": task_id,
+                "total_image_tasks": total_image_tasks,
+                "placeholders": placeholders,
+            },
+            progress=progress,
+            message=f"开始生成 {total_image_tasks} 张图片",
+        )
+
+    async def send_image_all_complete(
+        self,
+        task_id: str,
+        total_count: int,
+        success_count: int,
+        failed_count: int,
+        results: list,
+        progress: int = 80,
+    ) -> bool:
+        """发送所有图片任务完成事件"""
+        return await self.send_event(
+            task_id=task_id,
+            event_type=SSEEventType.IMAGE_ALL_COMPLETE,
+            stage=SSEStage.IMAGE,
+            data={
+                "task_id": task_id,
+                "total_count": total_count,
+                "success_count": success_count,
+                "failed_count": failed_count,
+                "results": results,
+            },
+            progress=progress,
+            message=f"图片生成完成: {success_count} 成功, {failed_count} 失败",
         )
 
     def get_connection_count(self) -> int:
