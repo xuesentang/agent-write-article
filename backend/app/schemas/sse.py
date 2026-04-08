@@ -135,6 +135,14 @@ class ContentChunkEventData(BaseModel):
     content: str = Field(..., description="正文片段内容")
 
 
+class ContentCompleteEventData(BaseModel):
+    """正文生成完成数据"""
+
+    content: str = Field(..., description="完整正文内容")
+    word_count: int = Field(..., description="字数统计")
+    image_count: int = Field(default=0, description="配图数量")
+
+
 class ImageProgressEventData(BaseModel):
     """配图生成进度数据"""
 

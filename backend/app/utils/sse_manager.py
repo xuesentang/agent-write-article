@@ -19,6 +19,7 @@ from app.schemas.sse import (
     OutlineChunkEventData,
     OutlineCompleteEventData,
     ContentChunkEventData,
+    ContentCompleteEventData,
     ImageProgressEventData,
     ImageCompleteEventData,
     ErrorEventData,
@@ -276,6 +277,21 @@ class SSEManager:
             stage=SSEStage.CONTENT,
             data=ContentChunkEventData(content=content).model_dump(),
             progress=progress,
+        )
+
+    async def send_content_complete(
+        self, task_id: str, content: str, word_count: int, image_count: int = 0, progress: int = 60
+    ) -> bool:
+        """发送正文生成完成"""
+        return await self.send_event(
+            task_id=task_id,
+            event_type=SSEEventType.CONTENT_COMPLETE,
+            stage=SSEStage.CONTENT,
+            data=ContentCompleteEventData(
+                content=content, word_count=word_count, image_count=image_count
+            ).model_dump(),
+            progress=progress,
+            message="正文生成完成",
         )
 
     async def send_image_progress(

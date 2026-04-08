@@ -137,3 +137,38 @@ class SSEDoneEvent(BaseModel):
     """完成 SSE 事件"""
 
     article_id: str
+
+
+# ============ 大纲相关请求 ============
+
+
+class SelectTitleRequest(BaseModel):
+    """选择标题请求"""
+
+    selected_title: str = Field(..., min_length=1, max_length=200, description="选定的标题")
+
+
+class GenerateOutlineRequest(BaseModel):
+    """生成大纲请求"""
+
+    target_length: Optional[int] = Field(default=2000, ge=500, le=10000, description="目标字数")
+
+
+class OptimizeOutlineRequest(BaseModel):
+    """优化大纲请求"""
+
+    user_modifications: str = Field(..., min_length=1, max_length=2000, description="用户修改建议")
+
+
+class SaveOutlineRequest(BaseModel):
+    """保存大纲请求"""
+
+    outline: Dict[str, Any] = Field(..., description="大纲结构数据")
+
+
+class ConfirmOutlineRequest(BaseModel):
+    """确认大纲请求（触发正文生成）"""
+
+    outline: Optional[Dict[str, Any]] = Field(
+        default=None, description="用户编辑后的大纲（可选，不传则使用已有大纲）"
+    )
