@@ -1,11 +1,17 @@
 """
-数据模型模块初始化
+数据模型模块
 SQLAlchemy ORM 模型定义
 """
 
-# TODO: 后续添加数据模型
-# from app.models.user import User
-# from app.models.task import Task
-# from app.models.article import Article
+from app.models.base import Base
+from app.models.user import User
+from app.models.task import Task, TaskStatus
+from app.models.article import Article
 
-__all__ = []
+__all__ = [
+    "Base",
+    "User",
+    "Task",
+    "TaskStatus",
+    "Article",
+]

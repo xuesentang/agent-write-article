@@ -1,11 +1,24 @@
 """
-服务层模块初始化
-业务逻辑处理层
+服务层模块
+业务逻辑处理和数据访问
 """
 
-# TODO: 后续添加各服务类
-# from app.services.user_service import UserService
-# from app.services.article_service import ArticleService
-# from app.services.llm_service import LLMService
+from app.services.base_repository import BaseRepository
+from app.services.task_repository import TaskRepository
+from app.services.article_repository import ArticleRepository
+from app.services.llm_service import (
+    LLMServiceBase,
+    MockLLMService,
+    RealLLMService,
+    get_llm_service,
+)
 
-__all__ = []
+__all__ = [
+    "BaseRepository",
+    "TaskRepository",
+    "ArticleRepository",
+    "LLMServiceBase",
+    "MockLLMService",
+    "RealLLMService",
+    "get_llm_service",
+]

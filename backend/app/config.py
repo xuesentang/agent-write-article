@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     # LLM API 配置 - 智谱
     ZHIPU_API_KEY: Optional[str] = None
     ZHIPU_BASE_URL: str = "https://open.bigmodel.cn/api/paas/v4"
-    ZHIPU_MODEL: str = "glm-4"
+    ZHIPU_MODEL: str = "glm-4.7"
 
     # LLM API 配置 - 千问
     QIANWEN_API_KEY: Optional[str] = None

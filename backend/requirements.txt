@@ -33,3 +33,5 @@ httpx==0.27.0  # 用于测试 FastAPI
 python-dotenv==1.0.1
 pydantic==2.8.2
 pydantic-settings==2.3.4
+
+greenlet==3.3.2

@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.config import settings
-from app.api.routes import health
+from app.api.routes import health_router, task_router, article_router, sse_router
+from app.utils.database import init_db, close_db
 
 
 @asynccontextmanager
@@ -16,11 +17,11 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     # Startup
     print(f"🚀 {settings.APP_NAME} v{settings.APP_VERSION} 启动中...")
-    # TODO: 初始化数据库连接、Redis 连接等
+    await init_db()
     yield
     # Shutdown
     print("👋 应用关闭中...")
-    # TODO: 关闭数据库连接、Redis 连接等
+    await close_db()
 
 
 app = FastAPI(
@@ -46,7 +47,10 @@ app.add_middleware(
 )
 
 # 注册路由
-app.include_router(health.router, prefix="/api", tags=["健康检查"])
+app.include_router(health_router, prefix="/api", tags=["健康检查"])
+app.include_router(task_router, prefix="/api", tags=["任务管理"])
+app.include_router(article_router, prefix="/api", tags=["文章管理"])
+app.include_router(sse_router, prefix="/api", tags=["SSE 流式推送"])
 
 
 @app.get("/")

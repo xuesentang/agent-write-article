@@ -91,11 +91,22 @@ pip install -r requirements.txt
 # 复制环境变量配置
 copy .env.example .env
 
-# 启动开发服务器
+# 启动开发服务器（数据库会在启动时自动初始化）
 uvicorn app.main:app --reload --port 8000
 ```
 
-### 3. 前端启动
+### 3. 数据库初始化
+
+数据库会在后端服务启动时自动创建。如需手动初始化：
+
+```bash
+# 激活虚拟环境后执行
+python scripts/init_db.py
+```
+
+**数据库文件位置**: `backend/data/article.db`
+
+### 4. 前端启动
 
 ```bash
 # 进入前端目录
@@ -108,7 +119,7 @@ npm install
 npm run dev
 ```
 
-### 4. 访问应用
+### 5. 访问应用
 
 - 前端: http://localhost:5173
 - 后端 API 文档: http://localhost:8000/docs
@@ -127,6 +138,42 @@ npm run dev
 | PEXELS_API_KEY | Pexels 图库 API Key | ✅ |
 | COS_SECRET_ID | 腾讯云 COS Secret ID | ✅ |
 | COS_SECRET_KEY | 腾讯云 COS Secret Key | ✅ |
+
+## 📊 数据库设计
+
+### 表结构
+
+| 表名 | 说明 | 主要字段 |
+|------|------|----------|
+| `users` | 用户表（预留） | id, username, email |
+| `tasks` | 任务表 | id, topic, style, status, progress |
+| `articles` | 文章表 | id, task_id, selected_title, outline, content |
+
+### 任务状态流转
+
+```
+CREATED → TITLE_GENERATING → TITLE_READY →
+OUTLINE_GENERATING → OUTLINE_READY →
+CONTENT_GENERATING → IMAGE_GENERATING → COMPLETED
+                ↘ FAILED (任意阶段可失败)
+```
+
+### API 接口
+
+| 接口 | 说明 |
+|------|------|
+| `POST /api/tasks` | 创建任务 |
+| `GET /api/tasks/{id}` | 获取任务详情 |
+| `GET /api/tasks` | 任务列表（分页） |
+| `PATCH /api/tasks/{id}/status` | 更新任务状态 |
+| `DELETE /api/tasks/{id}` | 删除任务 |
+| `GET /api/articles/{id}` | 获取文章详情 |
+| `GET /api/articles` | 文章列表（分页） |
+| `GET /api/health` | 基础健康检查 |
+| `GET /api/health/full` | 完整健康检查（含数据库） |
+| `GET /api/sse/connect/{task_id}` | 建立 SSE 连接 |
+| `GET /api/sse/status` | SSE 连接状态 |
+| `GET /api/sse/test/{task_id}` | SSE 测试端点 |
 
 ## 📡 SSE 数据协议
 
@@ -177,12 +224,29 @@ cd frontend
 npm run lint
 ```
 
+### SSE 通信测试
+
+访问前端测试页面 http://localhost:5173/sse-test 进行 SSE 通信测试。
+
+**测试正常的标志**：
+1. 收到 10 条消息
+2. 最后一条消息的事件类型为 `done`
+3. 最后一条消息的 data 包含 `test_passed: true`
+
+或直接访问后端测试端点：http://localhost:8000/api/sse/test/test-123
+
 ## 📝 开发进度
 
 - [x] 项目初始化
 - [x] 后端基础架构 (Router → Service → Database)
 - [x] 前端基础架构 (Vue 3 + Ant Design Vue)
+- [x] 数据库模型设计 (Task / Article)
+- [x] CRUD 操作接口
+- [x] 健康检查接口
 - [x] SSE 数据协议设计
+- [x] SSE 连接管理器（后端）
+- [x] SSE 客户端封装（前端）
+- [x] SSE 测试端点和测试页面
 - [ ] 智能体实现
 - [ ] 配图服务实现
 - [ ] 完整业务流程

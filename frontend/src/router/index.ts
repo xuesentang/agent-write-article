@@ -34,6 +34,12 @@ const router = createRouter({
       meta: { title: '关于我们' },
     },
     {
+      path: '/sse-test',
+      name: 'sse-test',
+      component: () => import('@/views/SSETest.vue'),
+      meta: { title: 'SSE 测试' },
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       component: () => import('@/views/NotFound.vue'),
