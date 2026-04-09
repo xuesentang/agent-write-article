@@ -3,7 +3,7 @@
  * SSE 测试页面组件
  * 用于验证 SSE 通信是否正常
  */
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import { useSSE, SSEEventType, ConnectionState } from '@/composables/useSSE'
 
 // 测试任务 ID
@@ -14,11 +14,8 @@ const {
   connectionState,
   lastError,
   eventCount,
-  lastEventData,
   connect,
   disconnect,
-  on,
-  off,
   onAny,
 } = useSSE(() => `/api/sse/test/${testTaskId.value}`, {
   maxReconnectAttempts: 3,

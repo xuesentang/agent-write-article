@@ -7,6 +7,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Optional, Callable, Any, AsyncGenerator
 from pathlib import Path
+from pydantic import BaseModel
 
 from app.services.llm_service import LLMServiceBase, get_llm_service
 
@@ -14,13 +15,13 @@ from app.services.llm_service import LLMServiceBase, get_llm_service
 logger = logging.getLogger(__name__)
 
 
-class AgentInput:
+class AgentInput(BaseModel):
     """智能体输入基类"""
 
     pass
 
 
-class AgentOutput:
+class AgentOutput(BaseModel):
     """智能体输出基类"""
 
     pass

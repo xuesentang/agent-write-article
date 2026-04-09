@@ -3,3 +3,4 @@
  */
 
 export * from './useSSE'
+export { useSSE, SSEClient, SSEEventType, SSEStage, ConnectionState } from './useSSE'

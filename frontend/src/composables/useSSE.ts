@@ -14,8 +14,10 @@ export enum SSEEventType {
   OUTLINE_COMPLETE = 'outline_complete',
   CONTENT_CHUNK = 'content_chunk',
   CONTENT_COMPLETE = 'content_complete',
+  IMAGE_TASK_START = 'image_task_start',
   IMAGE_PROGRESS = 'image_progress',
   IMAGE_COMPLETE = 'image_complete',
+  IMAGE_ALL_COMPLETE = 'image_all_complete',
   PROGRESS = 'progress',
   ERROR = 'error',
   DONE = 'done',
@@ -64,6 +66,12 @@ export interface SSEClientOptions {
 
 // 事件回调类型
 export type EventCallback = (data: SSEEventData) => void
+
+// 待注册的回调记录
+interface PendingCallback {
+  eventType: SSEEventType
+  callback: EventCallback
+}
 
 /**
  * SSE 客户端类
@@ -304,7 +312,11 @@ export function useSSE(url: string | (() => string), options: SSEClientOptions =
   const eventCount = ref(0)
   const lastEventData = ref<SSEEventData | null>(null)
 
-  // 创建客户端
+  // 待注册的回调列表（解决时序问题：onMounted 时 client 还不存在）
+  const pendingCallbacks: PendingCallback[] = []
+  let pendingAnyCallback: EventCallback | null = null
+
+  // 创建客户端并应用待注册的回调
   const createClient = () => {
     const actualUrl = typeof url === 'function' ? url() : url
     client = new SSEClient(actualUrl, options)
@@ -325,9 +337,21 @@ export function useSSE(url: string | (() => string), options: SSEClientOptions =
     watch(
       () => client?.eventCount.value,
       (newCount) => {
-        eventCount.value = newCount
+        if (newCount !== undefined) eventCount.value = newCount
       }
     )
+
+    // 应用之前待注册的回调
+    pendingCallbacks.forEach(({ eventType, callback }) => {
+      client?.on(eventType, callback)
+    })
+    pendingCallbacks.length = 0 // 清空待注册列表
+
+    // 应用之前待注册的任意事件回调
+    if (pendingAnyCallback) {
+      client?.onAny(pendingAnyCallback)
+      pendingAnyCallback = null
+    }
 
     return client
   }
@@ -345,19 +369,48 @@ export function useSSE(url: string | (() => string), options: SSEClientOptions =
     client?.disconnect()
   }
 
-  // 注册事件回调
+  // 注册事件回调（支持在 client 创建前调用）
   const on = (eventType: SSEEventType, callback: EventCallback) => {
-    client?.on(eventType, callback)
+    if (client) {
+      // client 已存在，直接注册
+      client.on(eventType, callback)
+    } else {
+      // client 还不存在，暂存回调
+      pendingCallbacks.push({ eventType, callback })
+    }
   }
 
   // 移除事件回调
   const off = (eventType: SSEEventType, callback?: EventCallback) => {
-    client?.off(eventType, callback)
+    if (client) {
+      client.off(eventType, callback)
+    } else {
+      // client 还不存在，从待注册列表中移除
+      if (callback) {
+        const index = pendingCallbacks.findIndex(
+          (p) => p.eventType === eventType && p.callback === callback
+        )
+        if (index > -1) {
+          pendingCallbacks.splice(index, 1)
+        }
+      } else {
+        // 移除该类型的所有待注册回调
+        for (let i = pendingCallbacks.length - 1; i >= 0; i--) {
+          if (pendingCallbacks[i].eventType === eventType) {
+            pendingCallbacks.splice(i, 1)
+          }
+        }
+      }
+    }
   }
 
-  // 注册任意事件回调
+  // 注册任意事件回调（支持在 client 创建前调用）
   const onAny = (callback: EventCallback) => {
-    client?.onAny(callback)
+    if (client) {
+      client.onAny(callback)
+    } else {
+      pendingAnyCallback = callback
+    }
   }
 
   // 组件卸载时自动断开

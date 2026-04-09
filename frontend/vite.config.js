@@ -1,0 +1,34 @@
+import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue';
+import { resolve } from 'path';
+// https://vitejs.dev/config/
+export default defineConfig({
+    plugins: [vue()],
+    resolve: {
+        alias: {
+            '@': resolve(__dirname, 'src'),
+        },
+    },
+    server: {
+        port: 5173,
+        proxy: {
+            '/api': {
+                target: 'http://localhost:8000',
+                changeOrigin: true,
+            },
+            '/docs': {
+                target: 'http://localhost:8000',
+                changeOrigin: true,
+            },
+            '/sse': {
+                target: 'http://localhost:8000',
+                changeOrigin: true,
+                rewrite: function (path) { return path.replace(/^\/sse/, '/api'); },
+            },
+        },
+    },
+    build: {
+        outDir: 'dist',
+        sourcemap: false,
+    },
+});

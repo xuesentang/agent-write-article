@@ -405,7 +405,7 @@ class RealLLMService(LLMServiceBase):
                         if chunk.choices[0].delta.content:
                             content = chunk.choices[0].delta.content
                             response_text += content
-                            stream_callback(content)
+                            await stream_callback(content)
 
                     latency = (datetime.now() - start_time).total_seconds() * 1000
                     log = LLMCallLog(
