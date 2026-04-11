@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     ICONIFY_API_URL: str = "https://api.iconify.design"
     SEEDREAM_API_KEY: Optional[str] = None
     SEEDREAM_BASE_URL: str = "https://api.seedream.ai/v1"
+    SEEDREAM_ENDPOINT_ID: Optional[str] = None
 
     # 前端 URL
     FRONTEND_URL: str = "http://localhost:5173"

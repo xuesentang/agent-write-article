@@ -173,6 +173,7 @@ class DoneEventData(BaseModel):
     """任务完成事件数据"""
 
     article_id: str = Field(..., description="生成的文章 ID")
+    final_output: Optional[str] = Field(None, description="合并后的最终正文内容（含配图）")
     message: str = Field(default="文章生成完成", description="完成消息")
 
 
@@ -198,3 +199,4 @@ class ImageAllCompleteEventData(BaseModel):
         default_factory=list,
         description="结果摘要列表"
     )
+    merged_content: Optional[str] = Field(None, description="图文合并后的最终正文")

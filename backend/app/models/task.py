@@ -22,9 +22,10 @@ class TaskStatus(str, enum.Enum):
     OUTLINE_GENERATING = "OUTLINE_GENERATING"  # 大纲生成中
     OUTLINE_READY = "OUTLINE_READY"        # 大纲就绪，待用户确认
     CONTENT_GENERATING = "CONTENT_GENERATING"  # 正文生成中
+    CONTENT_READY = "CONTENT_READY"        # 正文完成，等待配图
     IMAGE_GENERATING = "IMAGE_GENERATING"  # 配图生成中
     COMPLETED = "COMPLETED"                # 已完成
-    FAILED = "FAILED"                      # 失败
+    FAILED = "FAILED"                      # ailure
 
 
 class Task(Base):

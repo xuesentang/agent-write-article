@@ -84,6 +84,7 @@ class PexelsService(BaseImageProvider):
         image_type: ImageType,
         width: int = 1200,
         height: int = 800,
+        context: Optional[str] = None,
     ) -> ImageFetchResult:
         """
         从 Pexels 搜索并获取图片
@@ -93,6 +94,7 @@ class PexelsService(BaseImageProvider):
             image_type: 图片类型（必须是 photo 或 illustration）
             width: 目标宽度
             height: 目标高度
+            context: 上下文内容（Pexels 不使用，保留接口兼容）
 
         Returns:
             ImageFetchResult: 获取结果
@@ -322,6 +324,7 @@ class MockPexelsService(BaseImageProvider):
         image_type: ImageType,
         width: int = 1200,
         height: int = 800,
+        context: Optional[str] = None,
     ) -> ImageFetchResult:
         await asyncio.sleep(0.1)  # 模拟延迟
 

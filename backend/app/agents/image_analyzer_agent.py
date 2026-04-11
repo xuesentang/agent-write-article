@@ -37,6 +37,7 @@ class PlaceholderParseResult(BaseModel):
     rawText: str = Field(..., description="原始占位符文本")
     isValid: bool = Field(default=True, description="是否格式有效")
     errorMessage: Optional[str] = Field(None, description="错误信息")
+    context: Optional[str] = Field(None, description="占位符前一个自然段的上下文内容")
 
 
 class PlaceholderParseError(BaseModel):
@@ -81,8 +82,10 @@ class ImageAnalyzerAgent(BaseAgent):
 
     def __init__(self):
         """初始化图片分析智能体"""
+        logger.info("[ImageAnalyzerAgent] 初始化开始")
         # ImageAnalyzerAgent 不需要 LLM，纯解析逻辑
         super().__init__(llm_service=None, use_mock=True)
+        logger.info("[ImageAnalyzerAgent] 初始化完成")
 
     @property
     def name(self) -> str:
@@ -184,6 +187,10 @@ class ImageAnalyzerAgent(BaseAgent):
             # 获取原始文本
             raw_text = full_matches[idx].group(0) if idx < len(full_matches) else ""
 
+            # 提取占位符前一个自然段的上下文
+            match_obj = full_matches[idx] if idx < len(full_matches) else None
+            context = self._extract_preceding_paragraph(content, match_obj) if match_obj else None
+
             # 验证占位符ID格式
             placeholder_id = f"image_{image_num}"
 
@@ -205,6 +212,7 @@ class ImageAnalyzerAgent(BaseAgent):
                 keywords=keywords,
                 rawText=raw_text,
                 isValid=True,
+                context=context,
             )
             results.append(result)
 
@@ -226,6 +234,59 @@ class ImageAnalyzerAgent(BaseAgent):
                 logger.warning(f"[ImageAnalyzerAgent] 发现格式不完整占位符: {matched_text}")
 
         return results, errors
+
+    def _extract_preceding_paragraph(self, content: str, match_obj: re.Match) -> Optional[str]:
+        """
+        提取占位符前一个自然段的上下文内容
+
+        以空行（连续两个换行符 \n\n）作为自然段分隔，
+        取占位符所在位置之前的最后一个自然段。
+
+        Args:
+            content: 正文内容
+            match_obj: 正则匹配对象
+
+        Returns:
+            前一个自然段的文本内容，如无则返回 None
+        """
+        if not match_obj:
+            return None
+
+        placeholder_start = match_obj.start()
+
+        # 取占位符之前的全部内容
+        before = content[:placeholder_start]
+
+        # 按空行（\n\n）分割为自然段
+        # 用正则分割以兼容 \r\n 等换行符
+        paragraphs = re.split(r'\n\s*\n', before)
+
+        # 过滤掉空段
+        paragraphs = [p.strip() for p in paragraphs if p.strip()]
+
+        if not paragraphs:
+            return None
+
+        # 取最后一个自然段作为上下文
+        context = paragraphs[-1]
+
+        # 清理 markdown 标题标记（# 开头的行），保留纯文本
+        lines = context.split('\n')
+        clean_lines = []
+        for line in lines:
+            # 移除 markdown 标题标记
+            cleaned = re.sub(r'^#{1,6}\s+', '', line)
+            # 移除加粗/斜体标记
+            cleaned = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', cleaned)
+            clean_lines.append(cleaned)
+
+        context = ' '.join(clean_lines).strip()
+
+        # 限制长度，避免过长（取前 500 字）
+        if len(context) > 500:
+            context = context[:500]
+
+        return context if context else None
 
     def _parse_keywords(self, keywords_str: str) -> List[str]:
         """
@@ -315,6 +376,7 @@ class ImageAnalyzerAgent(BaseAgent):
                 maxRetries=2,
                 status=ImageTaskStatus.PENDING,
                 rawPlaceholderText=result.rawText,
+                context=result.context,
             )
             tasks.append(task)
 
@@ -326,49 +388,19 @@ class ImageAnalyzerAgent(BaseAgent):
         """
         根据图片类型选择服务提供商
 
+        简化为仅使用 Seedream 生成，Picsum 兜底
+
         Args:
             image_type: 图片类型
 
         Returns:
             (首选提供商列表, 备选提供商列表)
         """
-        # 选择规则（严格遵守用户规则）
-        if image_type == ImageType.PHOTO:
-            # 正文主图：Pexels优先，Seedream次选，Picsum兜底
-            return (
-                [ImageProvider.PEXELS, ImageProvider.SEEDREAM],
-                [ImageProvider.PICSUM]
-            )
-        elif image_type == ImageType.ILLUSTRATION:
-            # 插图类：Seedream优先（定制生成），Pexels次选，Picsum兜底
-            return (
-                [ImageProvider.SEEDREAM, ImageProvider.PEXELS],
-                [ImageProvider.PICSUM]
-            )
-        elif image_type == ImageType.DIAGRAM:
-            # 图表类：Seedream优先，Picsum兜底
-            return (
-                [ImageProvider.SEEDREAM],
-                [ImageProvider.PICSUM]
-            )
-        elif image_type == ImageType.ICON:
-            # 图标类：Iconify（仅限装饰用途），失败后Picsum
-            return (
-                [ImageProvider.ICONIFY],
-                [ImageProvider.PICSUM]
-            )
-        elif image_type == ImageType.DECORATIVE:
-            # 装饰类：Iconify优先，Picsum兜底
-            return (
-                [ImageProvider.ICONIFY],
-                [ImageProvider.PICSUM]
-            )
-        else:
-            # 默认：Pexels优先，Picsum兜底
-            return (
-                [ImageProvider.PEXELS],
-                [ImageProvider.PICSUM]
-            )
+        # 所有类型统一：Seedream 优先，Picsum 兜底
+        return (
+            [ImageProvider.SEEDREAM],
+            [ImageProvider.PICSUM]
+        )
 
     def _generate_description(self, keywords: List[str], position: int) -> str:
         """

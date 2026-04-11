@@ -211,6 +211,8 @@ export class SSEClient {
     this.lastEventTime = Date.now()
     this.eventCount.value++
 
+    console.log(`[SSE] 收到原始事件: type=${eventType}, data=${event.data.substring(0, 100)}...`)
+
     let data: SSEEventData
     try {
       data = JSON.parse(event.data) as SSEEventData
@@ -219,11 +221,16 @@ export class SSEClient {
       return
     }
 
-    console.log(`[SSE] 收到事件: ${eventType}`, data)
+    console.log(`[SSE] 解析后事件: type=${eventType}, data.event=${data.event}`, data)
 
     // 触发特定事件回调
     const callbacks = this.eventCallbacks.get(eventType as SSEEventType) || []
-    callbacks.forEach((cb) => cb(data))
+    console.log(`[SSE] 找到 ${callbacks.length} 个回调函数用于事件类型: ${eventType}`)
+
+    callbacks.forEach((cb, index) => {
+      console.log(`[SSE] 执行回调 ${index + 1}/${callbacks.length} 用于事件: ${eventType}`)
+      cb(data)
+    })
 
     // 触发通用回调
     if (this.anyCallback) {

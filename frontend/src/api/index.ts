@@ -34,6 +34,7 @@ export type TaskStatus =
   | 'OUTLINE_GENERATING'
   | 'OUTLINE_READY'
   | 'CONTENT_GENERATING'
+  | 'CONTENT_READY'
   | 'IMAGE_GENERATING'
   | 'COMPLETED'
   | 'FAILED'
@@ -188,6 +189,11 @@ export function saveOutline(taskId: string, data: SaveOutlineRequest): Promise<A
 /** 确认大纲，触发正文生成 */
 export function confirmOutline(taskId: string, data?: ConfirmOutlineRequest, useMock = false): Promise<ApiResponse<{ task_id: string; status: string }>> {
   return request.post(`/tasks/${taskId}/confirm-outline`, data, { params: { use_mock: useMock } })
+}
+
+/** 触发配图分析和生成 */
+export function startImageAnalysis(taskId: string, useMock = false): Promise<ApiResponse<{ task_id: string; status: string }>> {
+  return request.post(`/tasks/${taskId}/start-image-analysis`, null, { params: { use_mock: useMock } })
 }
 
 // ============ Article API ============

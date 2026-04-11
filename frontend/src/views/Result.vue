@@ -563,6 +563,16 @@ onMounted(() => {
   color: var(--text-secondary);
 }
 
+/* Markdown 内容中的图片样式（关键：确保图片可见） */
+.content-main :deep(.markdown-content img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+  margin: 16px 0;
+  box-shadow: var(--shadow-md);
+  display: block;
+}
+
 /* 响应式 */
 @media (max-width: 1024px) {
   .content-area {

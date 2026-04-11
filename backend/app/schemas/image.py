@@ -101,6 +101,12 @@ class ImageTask(BaseModel):
         description="当前状态: pending/processing/completed/failed/skipped"
     )
 
+    # 上下文内容（占位符前一个自然段的文本，用于构建精准的图片生成 Prompt）
+    context: Optional[str] = Field(
+        default=None,
+        description="占位符前一个自然段的上下文内容，用于构建更精准的 Seedream 生成 Prompt"
+    )
+
     # 用于追踪的元数据
     sectionTitle: Optional[str] = Field(
         default=None,

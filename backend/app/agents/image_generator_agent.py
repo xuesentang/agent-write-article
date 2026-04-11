@@ -72,16 +72,35 @@ class ImageGeneratorAgent(BaseAgent):
             cos_uploader: COS 上传服务（可选，默认使用配置）
             use_mock: 是否使用 Mock 实现（用于测试）
         """
+        logger.info(f"[ImageGeneratorAgent] 初始化开始, use_mock={use_mock}")
+
         # 使用提供的策略或创建默认策略
-        self.strategy = strategy or create_default_image_strategy(use_mock)
+        if strategy is None:
+            try:
+                from app.image import create_default_image_strategy
+                strategy = create_default_image_strategy(use_mock)
+                logger.info(f"[ImageGeneratorAgent] 图片服务策略创建成功")
+            except Exception as e:
+                logger.error(f"[ImageGeneratorAgent] 创建图片服务策略失败: {e}", exc_info=True)
+                raise
+        self.strategy = strategy
 
         # 使用提供的 COS 上传器或创建新实例
-        self.cos_uploader = cos_uploader or create_cos_uploader(use_mock)
+        if cos_uploader is None:
+            try:
+                from app.utils.cos_uploader import create_cos_uploader
+                cos_uploader = create_cos_uploader(use_mock)
+                logger.info(f"[ImageGeneratorAgent] COS 上传器创建成功, available={cos_uploader.is_available()}")
+            except Exception as e:
+                logger.error(f"[ImageGeneratorAgent] 创建 COS 上传器失败: {e}", exc_info=True)
+                raise
+        self.cos_uploader = cos_uploader
 
         self.use_mock = use_mock
 
         # 不需要 LLM，图片生成不调用 LLM
         super().__init__(llm_service=None, use_mock=True)
+        logger.info(f"[ImageGeneratorAgent] 初始化完成")
 
     @property
     def name(self) -> str:
@@ -113,19 +132,34 @@ class ImageGeneratorAgent(BaseAgent):
         task_id = input_data.taskId
         tasks = input_data.tasks
 
+        # 检查策略是否可用
+        if self.strategy is None:
+            logger.error("[ImageGeneratorAgent] 图片服务策略未初始化")
+            raise ValueError("图片服务策略未初始化")
+
+        # 检查 COS 上传器是否可用
+        if self.cos_uploader is None:
+            logger.error("[ImageGeneratorAgent] COS 上传器未初始化")
+            raise ValueError("COS 上传器未初始化")
+
+        available_providers = self.strategy.get_available_providers()
+        logger.info(f"[ImageGeneratorAgent] 可用的图片服务: {available_providers}")
+        logger.info(f"[ImageGeneratorAgent] COS 上传器可用: {self.cos_uploader.is_available()}")
+
         # 1. 发送任务开始事件
+        logger.info(f"[ImageGeneratorAgent] 发送任务开始事件...")
         await self._send_task_start_event(task_id, tasks)
 
         # 2. 并行执行所有图片任务
         results = await self._execute_all_tasks_parallel(task_id, tasks)
 
-        # 3. 发送全部完成事件
-        await self._send_all_complete_event(task_id, results)
-
-        # 4. 图文合并
+        # 3. 图文合并（在发送完成事件前先完成合并）
         merged_content = self._merge_images_into_content(
             input_data.content, results
         )
+
+        # 4. 发送全部完成事件（携带合并后的内容）
+        await self._send_all_complete_event(task_id, results, merged_content)
 
         # 5. 统计结果
         success_count = sum(1 for r in results if r.status == ImageTaskStatus.COMPLETED)
@@ -238,13 +272,14 @@ class ImageGeneratorAgent(BaseAgent):
             message=f"图片 {result.placeholderId} 已完成",
         )
 
-    async def _send_all_complete_event(self, task_id: str, results: List[ImageResult]):
+    async def _send_all_complete_event(self, task_id: str, results: List[ImageResult], merged_content: str = ""):
         """
         发送所有图片完成事件
 
         Args:
             task_id: 文章生成任务 ID
             results: 图片结果列表
+            merged_content: 图文合并后的最终正文
         """
         success_count = sum(1 for r in results if r.status == ImageTaskStatus.COMPLETED)
         failed_count = sum(1 for r in results if r.status == ImageTaskStatus.FAILED)
@@ -267,6 +302,7 @@ class ImageGeneratorAgent(BaseAgent):
                     }
                     for r in results
                 ],
+                "merged_content": merged_content,  # 携带合并后的正文内容
             },
             progress=80,  # 图片阶段完成进度
             message=f"图片生成完成: {success_count} 成功, {failed_count} 失败",
@@ -370,7 +406,12 @@ class ImageGeneratorAgent(BaseAgent):
             图片结果
         """
         logger.info(
-            f"[ImageGeneratorAgent] 开始处理任务: {image_task.placeholderId}"
+            f"[ImageGeneratorAgent] 开始处理任务: {image_task.placeholderId}, "
+            f"keywords={image_task.keywords}, type={image_task.imageType.value}"
+        )
+        logger.info(
+            f"[ImageGeneratorAgent] 首选服务: {image_task.preferredProviders}, "
+            f"备选服务: {image_task.fallbackProviders}"
         )
 
         # 发送开始事件
@@ -388,9 +429,11 @@ class ImageGeneratorAgent(BaseAgent):
 
         # 尝试所有首选服务
         for provider_name in image_task.preferredProviders:
+            logger.info(f"[ImageGeneratorAgent] 尝试首选服务: {provider_name.value}")
             provider = self.strategy.get_provider(provider_name)
 
             if not provider:
+                logger.warning(f"[ImageGeneratorAgent] 服务 {provider_name.value} 未注册")
                 continue
 
             # 检查服务可用性
@@ -420,21 +463,34 @@ class ImageGeneratorAgent(BaseAgent):
             )
 
             try:
-                # 获取图片
+                logger.info(f"[ImageGeneratorAgent] 调用 {provider_name.value} 获取图片...")
+                # 获取图片（传递上下文内容用于语义增强）
                 fetch_result = await provider.fetch_image(
                     keywords=image_task.keywords,
                     image_type=image_task.imageType,
                     width=1200,
                     height=800,
+                    context=image_task.context,
+                )
+
+                logger.info(
+                    f"[ImageGeneratorAgent] {provider_name.value} 返回: "
+                    f"success={fetch_result.success}, url={fetch_result.url[:50] if fetch_result.url else 'None'}..."
                 )
 
                 if fetch_result.success:
+                    logger.info(f"[ImageGeneratorAgent] 上传图片到 COS...")
                     # 上传 COS
                     cos_result = await self.cos_uploader.upload_from_url(
                         image_url=fetch_result.url,
                         placeholder_id=image_task.placeholderId,
                         task_id=image_task.taskId,
                         source_provider=fetch_result.provider,
+                    )
+
+                    logger.info(
+                        f"[ImageGeneratorAgent] COS 上传结果: status={cos_result.status.value}, "
+                        f"url={cos_result.url[:50] if cos_result.url else 'None'}..."
                     )
 
                     if cos_result.status == ImageTaskStatus.COMPLETED:
@@ -445,28 +501,34 @@ class ImageGeneratorAgent(BaseAgent):
                             progress=100,
                         )
 
+                        logger.info(f"[ImageGeneratorAgent] 任务 {image_task.placeholderId} 完成")
                         return cos_result
 
                     # 上传失败，继续尝试下一个
                     last_error = cos_result.errorMessage
                     failed_providers.append(provider_name)
+                    logger.warning(f"[ImageGeneratorAgent] COS 上传失败: {last_error}")
 
             except Exception as e:
                 last_error = str(e)
                 failed_providers.append(provider_name)
                 logger.warning(
                     f"[ImageGeneratorAgent] 服务 {provider_name.value} "
-                    f"获取失败: {e}"
+                    f"获取失败: {e}", exc_info=True
                 )
 
         # 首选服务全部失败，降级到 fallback
+        logger.info(f"[ImageGeneratorAgent] 首选服务全部失败，尝试备选服务...")
         for provider_name in image_task.fallbackProviders:
             if provider_name in failed_providers:
+                logger.info(f"[ImageGeneratorAgent] 跳过已失败的备选服务: {provider_name.value}")
                 continue
 
+            logger.info(f"[ImageGeneratorAgent] 尝试备选服务: {provider_name.value}")
             provider = self.strategy.get_provider(provider_name)
 
             if not provider or not provider.is_available():
+                logger.warning(f"[ImageGeneratorAgent] 备选服务 {provider_name.value} 不可用")
                 continue
 
             await self._send_single_progress_event(
@@ -478,11 +540,18 @@ class ImageGeneratorAgent(BaseAgent):
             )
 
             try:
+                logger.info(f"[ImageGeneratorAgent] 调用备选服务 {provider_name.value}...")
                 fetch_result = await provider.fetch_image(
                     keywords=image_task.keywords,
                     image_type=image_task.imageType,
                     width=1200,
                     height=800,
+                    context=image_task.context,
+                )
+
+                logger.info(
+                    f"[ImageGeneratorAgent] 备选服务 {provider_name.value} 返回: "
+                    f"success={fetch_result.success}"
                 )
 
                 if fetch_result.success:
@@ -500,18 +569,21 @@ class ImageGeneratorAgent(BaseAgent):
                             progress=100,
                         )
 
+                        logger.info(f"[ImageGeneratorAgent] 任务 {image_task.placeholderId} 通过备选服务完成")
                         return cos_result
 
                     last_error = cos_result.errorMessage
+                    logger.warning(f"[ImageGeneratorAgent] 备选服务 COS 上传失败: {last_error}")
 
             except Exception as e:
                 last_error = str(e)
                 logger.warning(
                     f"[ImageGeneratorAgent] Fallback 服务 {provider_name.value} "
-                    f"失败: {e}"
+                    f"失败: {e}", exc_info=True
                 )
 
         # 所有服务都失败，强制使用 Picsum 兜底
+        logger.info(f"[ImageGeneratorAgent] 所有服务失败，尝试 Picsum 兜底...")
         picsum = self.strategy.get_provider(ImageProvider.PICSUM)
 
         if picsum and picsum.is_available():
@@ -534,7 +606,10 @@ class ImageGeneratorAgent(BaseAgent):
                     image_type=image_task.imageType,
                     width=1200,
                     height=800,
+                    context=image_task.context,
                 )
+
+                logger.info(f"[ImageGeneratorAgent] Picsum 返回: success={fetch_result.success}, url={fetch_result.url}")
 
                 cos_result = await self.cos_uploader.upload_from_url(
                     image_url=fetch_result.url,
@@ -543,20 +618,25 @@ class ImageGeneratorAgent(BaseAgent):
                     source_provider=ImageProvider.PICSUM,
                 )
 
+                logger.info(f"[ImageGeneratorAgent] Picsum 图片上传结果: status={cos_result.status.value}")
+
                 await self._send_single_complete_event(
                     task_id=task_id,
                     result=cos_result,
                     progress=100,
                 )
 
+                logger.info(f"[ImageGeneratorAgent] 任务 {image_task.placeholderId} 通过 Picsum 完成")
                 return cos_result
 
             except Exception as e:
                 # Picsum 也失败（理论上不应该）
                 last_error = str(e)
                 logger.error(
-                    f"[ImageGeneratorAgent] Picsum 兜底也失败: {e}"
+                    f"[ImageGeneratorAgent] Picsum 兜底也失败: {e}", exc_info=True
                 )
+        else:
+            logger.error(f"[ImageGeneratorAgent] Picsum 服务不可用: picsum={picsum is not None}")
 
         # 最终失败：返回空结果
         logger.error(
@@ -615,25 +695,53 @@ class ImageGeneratorAgent(BaseAgent):
         merged_content = content
 
         for result in sorted_results:
-            # 匹配占位符：![IMAGE_PLACEHOLDER](image_N|关键词)
-            pattern = f'!\[IMAGE_PLACEHOLDER\]\({result.placeholderId}\\|[^)]+\\)'
+            # 标准匹配：![IMAGE_PLACEHOLDER](image_N|关键词)
+            pattern = rf'!\[IMAGE_PLACEHOLDER\]\({re.escape(result.placeholderId)}\|[^)]*\)'
 
             if result.url:
                 # 有 URL：替换为真实图片
                 replacement = f'![配图]({result.url})'
-                merged_content = re.sub(pattern, replacement, merged_content)
-                logger.info(
-                    f"[ImageGeneratorAgent] 替换占位符: "
-                    f"{result.placeholderId} -> {result.url[:50]}..."
-                )
+                new_content = re.sub(pattern, replacement, merged_content)
+                if new_content == merged_content:
+                    # 标准匹配失败，尝试更宽松的匹配
+                    loose_pattern = rf'!\[IMAGE_PLACEHOLDER\]\([^)]*{re.escape(result.placeholderId)}[^)]*\)'
+                    new_content = re.sub(loose_pattern, replacement, merged_content)
+                    if new_content != merged_content:
+                        logger.info(
+                            f"[ImageGeneratorAgent] 通过宽松匹配替换占位符: "
+                            f"{result.placeholderId} -> {result.url[:50]}..."
+                        )
+                if new_content != merged_content:
+                    merged_content = new_content
+                    logger.info(
+                        f"[ImageGeneratorAgent] 替换占位符: "
+                        f"{result.placeholderId} -> {result.url[:50]}..."
+                    )
+                else:
+                    logger.warning(
+                        f"[ImageGeneratorAgent] 占位符未匹配到: {result.placeholderId}"
+                    )
             else:
                 # 无 URL（失败）：删除占位符
                 replacement = ''
-                merged_content = re.sub(pattern, replacement, merged_content)
-                logger.warning(
-                    f"[ImageGeneratorAgent] 删除失败占位符: "
-                    f"{result.placeholderId}"
-                )
+                new_content = re.sub(pattern, replacement, merged_content)
+                if new_content == merged_content:
+                    # 标准匹配失败，尝试更宽松的匹配
+                    loose_pattern = rf'!\[IMAGE_PLACEHOLDER\]\([^)]*{re.escape(result.placeholderId)}[^)]*\)'
+                    new_content = re.sub(loose_pattern, replacement, merged_content)
+                if new_content != merged_content:
+                    merged_content = new_content
+                    logger.warning(
+                        f"[ImageGeneratorAgent] 删除失败占位符: "
+                        f"{result.placeholderId}"
+                    )
+                else:
+                    logger.warning(
+                        f"[ImageGeneratorAgent] 失败占位符未匹配到: {result.placeholderId}"
+                    )
+
+        # 清理多余空行（连续3个以上换行合并为2个）
+        merged_content = re.sub(r'\n{3,}', '\n\n', merged_content)
 
         return merged_content
 

@@ -202,7 +202,8 @@ class ImageServiceStrategy:
                     keywords=task.keywords,
                     image_type=task.imageType,
                     width=1200,
-                    height=800
+                    height=800,
+                    context=task.context,
                 )
 
                 if result.success:

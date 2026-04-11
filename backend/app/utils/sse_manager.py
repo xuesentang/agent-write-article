@@ -82,7 +82,7 @@ class SSEConnection:
                 # 等待消息，带超时
                 event_id, event_data = await asyncio.wait_for(
                     self.message_queue.get(),
-                    timeout=30.0,  # 30 秒超时（用于心跳）
+                    timeout=60.0,  # 60 秒超时（图片生成耗时长，需要更长心跳间隔）
                 )
                 yield event_data.to_sse_format(event_id)
             except asyncio.TimeoutError:
@@ -235,7 +235,8 @@ class SSEManager:
         self, task_id: str, titles: list, progress: int = 20
     ) -> bool:
         """发送标题生成完成"""
-        return await self.send_event(
+        print(f"[SSE Manager] 准备发送 title_complete 事件: task_id={task_id}, titles_count={len(titles)}")
+        result = await self.send_event(
             task_id=task_id,
             event_type=SSEEventType.TITLE_COMPLETE,
             stage=SSEStage.TITLE,
@@ -243,6 +244,8 @@ class SSEManager:
             progress=progress,
             message="标题生成完成",
         )
+        print(f"[SSE Manager] title_complete 发送结果: {result}")
+        return result
 
     async def send_outline_chunk(
         self, task_id: str, content: str, progress: int = 0
@@ -346,12 +349,12 @@ class SSEManager:
             message=message,
         )
 
-    async def send_done(self, task_id: str, article_id: str) -> bool:
+    async def send_done(self, task_id: str, article_id: str, final_output: Optional[str] = None) -> bool:
         """发送任务完成事件"""
         return await self.send_event(
             task_id=task_id,
             event_type=SSEEventType.DONE,
-            data=DoneEventData(article_id=article_id).model_dump(),
+            data=DoneEventData(article_id=article_id, final_output=final_output).model_dump(),
             progress=100,
             message="文章生成完成",
         )
@@ -385,6 +388,7 @@ class SSEManager:
         failed_count: int,
         results: list,
         progress: int = 80,
+        merged_content: Optional[str] = None,
     ) -> bool:
         """发送所有图片任务完成事件"""
         return await self.send_event(
@@ -397,6 +401,7 @@ class SSEManager:
                 "success_count": success_count,
                 "failed_count": failed_count,
                 "results": results,
+                "merged_content": merged_content,
             },
             progress=progress,
             message=f"图片生成完成: {success_count} 成功, {failed_count} 失败",

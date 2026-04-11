@@ -12,6 +12,7 @@
 注意：若配置缺失，服务不可用，必须中断并向用户确认
 """
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -25,8 +26,17 @@ import httpx
 from app.config import settings
 from app.schemas.image import ImageResult, ImageProvider, ImageTaskStatus
 
-
+# 初始化 logger
 logger = logging.getLogger(__name__)
+
+# 导入腾讯云 COS SDK
+try:
+    from qcloud_cos import CosConfig
+    from qcloud_cos import CosS3Client
+    COS_SDK_AVAILABLE = True
+except ImportError:
+    COS_SDK_AVAILABLE = False
+    logger.warning("[COSUploader] cos-python-sdk-v5 未安装，将使用 Mock 上传")
 
 
 class COSUploader:
@@ -47,6 +57,8 @@ class COSUploader:
 
     def __init__(self):
         """初始化 COS 上传服务"""
+        logger.info("[COSUploader] 初始化开始")
+
         # 从 settings 读取配置
         self.secret_id = settings.COS_SECRET_ID
         self.secret_key = settings.COS_SECRET_KEY
@@ -54,8 +66,11 @@ class COSUploader:
         self.region = settings.COS_REGION
         self.upload_path = settings.COS_UPLOAD_PATH
 
+        logger.info(f"[COSUploader] 配置: bucket={self.bucket}, region={self.region}, path={self.upload_path}")
+
         # 检查配置完整性
         self._check_config()
+        logger.info(f"[COSUploader] 初始化完成, available={self._available}")
 
     def _check_config(self):
         """
@@ -203,20 +218,59 @@ class COSUploader:
         temp_file_name = f"temp_{int(time.time() * 1000)}{ext}"
         temp_file_path = os.path.join(temp_dir, temp_file_name)
 
-        # 下载图片
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            response = await client.get(image_url)
+        # 构建请求头
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
 
-            if response.status_code != 200:
-                raise Exception(f"下载图片失败: status={response.status_code}")
+        # Pexels 特定处理：添加 Referer 防盗链
+        if "pexels" in image_url.lower():
+            headers["Referer"] = "https://www.pexels.com/"
 
-            # 写入临时文件
-            with open(temp_file_path, "wb") as f:
-                f.write(response.content)
+        # 带重试的下载
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+                    response = await client.get(image_url, headers=headers)
 
-        logger.info(f"[COSUploader] 图片已下载到临时目录: {temp_file_path}")
+                    if response.status_code != 200:
+                        raise Exception(
+                            f"下载图片失败: status={response.status_code}, url={image_url}"
+                        )
 
-        return temp_file_path
+                    # 检查是否为图片内容
+                    content_type = response.headers.get("content-type", "")
+                    if "image" not in content_type and "octet-stream" not in content_type:
+                        logger.warning(
+                            f"[COSUploader] 响应可能不是图片: content-type={content_type}, url={image_url}"
+                        )
+
+                    # 写入临时文件
+                    with open(temp_file_path, "wb") as f:
+                        f.write(response.content)
+
+                    # 检查文件大小，过小可能不是有效图片
+                    file_size = os.path.getsize(temp_file_path)
+                    if file_size < 100:
+                        raise Exception(
+                            f"下载的文件过小({file_size}字节)，可能不是有效图片: url={image_url}"
+                        )
+
+                    logger.info(
+                        f"[COSUploader] 图片已下载到临时目录: {temp_file_path}, "
+                        f"size={file_size}, content-type={content_type}"
+                    )
+
+                    return temp_file_path
+
+            except Exception as e:
+                logger.warning(
+                    f"[COSUploader] 下载失败 (attempt {attempt + 1}/{max_retries}): {e}"
+                )
+                if attempt == max_retries - 1:
+                    raise
+                await asyncio.sleep(1 * (attempt + 1))  # 递增等待
 
     def _extract_extension(self, url: str) -> Optional[str]:
         """
@@ -248,13 +302,19 @@ class COSUploader:
         Returns:
             (width, height)
         """
-        # 简化实现：返回默认尺寸
-        # 真实项目可以使用 PIL/Pillow 获取真实尺寸
-        # from PIL import Image
-        # with Image.open(file_path) as img:
-        #     return img.size
-
-        return (1200, 800)  # 默认尺寸
+        try:
+            # 使用 PIL 获取真实尺寸
+            from PIL import Image
+            with Image.open(file_path) as img:
+                width, height = img.size
+                logger.info(f"[COSUploader] 图片尺寸: {width}x{height}")
+                return (width, height)
+        except ImportError:
+            logger.warning("[COSUploader] PIL 未安装，使用默认尺寸")
+            return (1200, 800)
+        except Exception as e:
+            logger.warning(f"[COSUploader] 获取图片尺寸失败: {e}")
+            return (1200, 800)
 
     def _generate_cos_key(
         self,
@@ -294,22 +354,46 @@ class COSUploader:
 
         Returns:
             COS 访问 URL
-
-        注意：当前为简化实现，真实项目建议使用 cos-python-sdk-v5
         """
-        # TODO: 使用真实 COS SDK 上传
-        # 当前返回 Mock URL，真实实现需要：
-        # 1. 安装 cos-python-sdk-v5
-        # 2. 使用 qcloud_cos 库上传
-        # 3. 返回真实的 COS URL
-
-        # 构建简化版 COS URL（假设上传成功）
+        # 构建 COS URL
         cos_url = f"https://{self.bucket}.cos.{self.region}.myqcloud.com/{cos_key}"
 
-        # 模拟上传延迟
-        await self._mock_upload(file_path, cos_key)
+        if not COS_SDK_AVAILABLE:
+            # SDK 未安装，使用 Mock 上传
+            await self._mock_upload(file_path, cos_key)
+            return cos_url
 
-        return cos_url
+        try:
+            # 关键修复：使用 asyncio.to_thread 包装同步 COS SDK 调用，
+            # 避免阻塞异步事件循环导致并行图片任务串行化、SSE心跳无法发送
+            def _sync_upload():
+                config = CosConfig(
+                    Region=self.region,
+                    SecretId=self.secret_id,
+                    SecretKey=self.secret_key,
+                )
+                client = CosS3Client(config)
+                with open(file_path, "rb") as fp:
+                    response = client.put_object(
+                        Bucket=self.bucket,
+                        Body=fp,
+                        Key=cos_key,
+                        ACL='public-read',  # 设置对象为公开可读，浏览器可直接访问
+                    )
+                return response
+
+            response = await asyncio.to_thread(_sync_upload)
+
+            logger.info(
+                f"[COSUploader] SDK 上传成功: {file_path} -> {cos_key}, "
+                f"ETag: {response.get('ETag', 'N/A')}"
+            )
+
+            return cos_url
+
+        except Exception as e:
+            logger.error(f"[COSUploader] SDK 上传失败: {e}")
+            raise Exception(f"COS 上传失败: {str(e)}")
 
     async def _mock_upload(self, file_path: str, cos_key: str):
         """
@@ -384,6 +468,7 @@ class MockCOSUploader:
         logger.info("[MockCOSUploader] Mock 服务初始化完成")
 
     def is_available(self) -> bool:
+        logger.debug(f"[MockCOSUploader] is_available: {self._available}")
         return self._available
 
     async def upload_from_url(
@@ -395,9 +480,11 @@ class MockCOSUploader:
     ) -> ImageResult:
         import asyncio
 
+        logger.info(f"[MockCOSUploader] 模拟上传: placeholder={placeholder_id}, source={image_url[:50]}...")
         await asyncio.sleep(0.1)
 
         mock_url = self.MOCK_COS_URL_TEMPLATE.format(placeholder_id=placeholder_id)
+        logger.info(f"[MockCOSUploader] 模拟上传完成: {mock_url}")
 
         return ImageResult(
             taskId=task_id,

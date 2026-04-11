@@ -93,6 +93,7 @@ class IconifyService(BaseImageProvider):
         image_type: ImageType,
         width: int = 1200,
         height: int = 800,
+        context: Optional[str] = None,
     ) -> ImageFetchResult:
         """
         从 Iconify 搜索并获取图标
@@ -102,6 +103,7 @@ class IconifyService(BaseImageProvider):
             image_type: 图片类型（必须是 icon 或 decorative）
             width: 目标宽度（图标尺寸）
             height: 目标高度（图标尺寸）
+            context: 上下文内容（Iconify 不使用，保留接口兼容）
 
         Returns:
             ImageFetchResult: 获取结果
@@ -293,6 +295,7 @@ class MockIconifyService(BaseImageProvider):
         image_type: ImageType,
         width: int = 1200,
         height: int = 800,
+        context: Optional[str] = None,
     ) -> ImageFetchResult:
         # 模拟类型检查
         if not self.supports_image_type(image_type):

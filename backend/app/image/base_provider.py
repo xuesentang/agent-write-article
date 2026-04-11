@@ -40,6 +40,7 @@ class BaseImageProvider(ABC):
         image_type: ImageType,
         width: int = 1200,
         height: int = 800,
+        context: Optional[str] = None,
     ) -> ImageFetchResult:
         """
         获取图片
@@ -49,6 +50,7 @@ class BaseImageProvider(ABC):
             image_type: 图片类型
             width: 目标宽度
             height: 目标高度
+            context: 占位符前一个自然段的上下文内容（用于 Seedream 语义增强）
 
         Returns:
             ImageFetchResult: 图片获取结果

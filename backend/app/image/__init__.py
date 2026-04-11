@@ -3,6 +3,8 @@
 策略模式管理多种配图方式
 """
 
+import logging
+
 from app.image.base_provider import BaseImageProvider
 from app.image.strategy import (
     ImageServiceStrategy,
@@ -26,6 +28,8 @@ from app.image.providers import (
     MockPicsumService,
     create_picsum_service,
 )
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     # 基类
@@ -57,9 +61,10 @@ __all__ = [
 
 def create_default_image_strategy(use_mock: bool = False) -> ImageServiceStrategy:
     """
-    创建默认图片服务策略
+    创建简化图片服务策略
 
-    注册所有四个服务提供商
+    仅使用 Seedream 作为主要图片源，Picsum 作为兜底。
+    移除 Pexels、Iconify 等不可靠服务，降低架构复杂度。
 
     Args:
         use_mock: 是否使用 Mock 服务（用于测试）
@@ -67,9 +72,27 @@ def create_default_image_strategy(use_mock: bool = False) -> ImageServiceStrateg
     Returns:
         ImageServiceStrategy 实例
     """
-    return create_image_service_strategy(
-        pexels_provider=create_pexels_service(use_mock),
-        iconify_provider=create_iconify_service(use_mock),
-        seedream_provider=create_seedream_service(use_mock),
-        picsum_provider=create_picsum_service(use_mock),
+    logger.info(f"[ImageStrategy] 创建简化图片策略（Seedream + Picsum），use_mock={use_mock}")
+
+    try:
+        seedream = create_seedream_service(use_mock)
+        logger.info(f"[ImageStrategy] Seedream 服务创建完成, available={seedream.is_available() if seedream else 'None'}")
+    except Exception as e:
+        logger.warning(f"[ImageStrategy] 创建 Seedream 服务失败: {e}")
+        seedream = None
+
+    try:
+        picsum = create_picsum_service(use_mock)
+        logger.info(f"[ImageStrategy] Picsum 服务创建完成, available={picsum.is_available() if picsum else 'None'}")
+    except Exception as e:
+        logger.warning(f"[ImageStrategy] 创建 Picsum 服务失败: {e}")
+        picsum = None
+
+    # 仅注册 Seedream 和 Picsum
+    strategy = create_image_service_strategy(
+        seedream_provider=seedream,
+        picsum_provider=picsum,
     )
+
+    logger.info(f"[ImageStrategy] 图片策略创建完成, 可用服务: {strategy.get_available_providers()}")
+    return strategy

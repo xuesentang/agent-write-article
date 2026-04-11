@@ -42,7 +42,7 @@ class TaskRepository(BaseRepository[Task]):
         """
         查询所有进行中的任务
 
-        包括状态：TITLE_GENERATING, OUTLINE_GENERATING, CONTENT_GENERATING, IMAGE_GENERATING
+        包括状态：TITLE_GENERATING, OUTLINE_GENERATING, CONTENT_GENERATING, CONTENT_READY, IMAGE_GENERATING
 
         Returns:
             进行中的任务列表
@@ -51,6 +51,7 @@ class TaskRepository(BaseRepository[Task]):
             TaskStatus.TITLE_GENERATING,
             TaskStatus.OUTLINE_GENERATING,
             TaskStatus.CONTENT_GENERATING,
+            TaskStatus.CONTENT_READY,
             TaskStatus.IMAGE_GENERATING,
         ]
 

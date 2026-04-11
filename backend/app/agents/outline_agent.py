@@ -22,7 +22,7 @@ class OutlineAgentInput(AgentInput):
     """OutlineAgent 输入数据"""
 
     selected_title: str = Field(..., min_length=1, max_length=200, description="用户选择的标题")
-    topic: str = Field(..., min_length=1, max_length=500, description="原始选题")
+    topic: str = Field(default="", max_length=500, description="原始选题（优化模式可为空）")
     style: str = Field(default="专业", max_length=50, description="文章风格")
     target_length: int = Field(default=2000, ge=500, le=10000, description="目标字数")
     extra_description: Optional[str] = Field(default=None, max_length=1000, description="用户补充描述")

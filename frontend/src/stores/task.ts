@@ -50,15 +50,23 @@ export const useTaskStore = defineStore('task', () => {
   const sseError = ref<string | null>(null)
 
   // 当前阶段 (0: 标题, 1: 大纲, 2: 正文, 3: 配图)
+  // 注意：TITLE_READY 状态应该保持在标题选择阶段，而不是跳到大纲阶段
+  // CONTENT_READY 状态应该保持在正文阶段（显示正文，等待用户点击配图）
   const currentStage = computed(() => {
     if (!currentTask.value) return -1
     const status = currentTask.value.status
 
-    if (status === 'CREATED' || status === 'TITLE_GENERATING') return 0
-    if (status === 'TITLE_READY' || status === 'OUTLINE_GENERATING') return 1
-    if (status === 'OUTLINE_READY' || status === 'CONTENT_GENERATING') return 2
+    // 标题阶段：包括标题生成中和标题就绪（等待用户选择）
+    if (status === 'CREATED' || status === 'TITLE_GENERATING' || status === 'TITLE_READY') return 0
+    // 大纲阶段：大纲生成中或大纲就绪（等待用户确认）
+    if (status === 'OUTLINE_GENERATING' || status === 'OUTLINE_READY') return 1
+    // 正文阶段：正文生成中或正文完成（等待用户点击配图）
+    if (status === 'CONTENT_GENERATING' || status === 'CONTENT_READY') return 2
+    // 配图阶段
     if (status === 'IMAGE_GENERATING') return 3
+    // 完成
     if (status === 'COMPLETED') return 4
+    // 失败
     if (status === 'FAILED') return -1
     return -1
   })
@@ -105,11 +113,15 @@ export const useTaskStore = defineStore('task', () => {
     }
   }
 
-  // 设置标题方案
+  // 设置标题方案（同时更新状态为 TITLE_READY）
   function setTitles(titles: string[]) {
     if (currentTask.value) {
       currentTask.value.titles = titles
       currentTask.value.titleGenerating = false
+      // 收到标题列表意味着标题生成完成，应该更新状态为 TITLE_READY
+      currentTask.value.status = 'TITLE_READY'
+      currentTask.value.statusMessage = '标题生成完成，请选择标题'
+      currentTask.value.progress = 20
     }
   }
 
@@ -146,19 +158,25 @@ export const useTaskStore = defineStore('task', () => {
     }
   }
 
-  // 设置正文
+  // 设置正文（同时更新状态为 CONTENT_READY）
   function setContent(content: string, wordCount: number) {
     if (currentTask.value) {
       currentTask.value.content = content
       currentTask.value.wordCount = wordCount
       currentTask.value.contentGenerating = false
+      // 正文完成意味着状态应该是 CONTENT_READY
+      currentTask.value.status = 'CONTENT_READY'
+      currentTask.value.statusMessage = '正文创作完成，准备生成配图'
+      currentTask.value.progress = 60
     }
   }
 
   // 添加正文片段 (流式)
-  function appendContentChunk(_chunk: string) {
+  function appendContentChunk(chunk: string) {
     if (currentTask.value) {
       currentTask.value.contentGenerating = true
+      // 累积正文内容
+      currentTask.value.content += chunk
     }
   }
 
@@ -195,9 +213,20 @@ export const useTaskStore = defineStore('task', () => {
       currentTask.value.articleId = articleId
       if (finalOutput) {
         currentTask.value.finalOutput = finalOutput
+        // 同步更新 content，使前端能立即展示合并后的内容
+        currentTask.value.content = finalOutput
       }
       currentTask.value.contentGenerating = false
       currentTask.value.imageGenerating = false
+    }
+  }
+
+  // 更新图文合并后的最终内容（从 IMAGE_ALL_COMPLETE 或 DONE 事件接收）
+  function updateMergedContent(mergedContent: string) {
+    if (currentTask.value) {
+      currentTask.value.finalOutput = mergedContent
+      // 同步更新 content 字段，让正文预览区域立即显示带图片的内容
+      currentTask.value.content = mergedContent
     }
   }
 
@@ -242,6 +271,7 @@ export const useTaskStore = defineStore('task', () => {
     addImage,
     setImages,
     setCompleted,
+    updateMergedContent,
     setError,
     setSSEConnected,
     resetTask,

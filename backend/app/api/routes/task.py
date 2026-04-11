@@ -33,6 +33,12 @@ from app.agents import (
     OutlineAgentInput,
     ContentAgent,
     ContentAgentInput,
+    ImageAnalyzerAgent,
+    ImageAnalyzerInput,
+    ImageGeneratorAgent,
+    ImageGeneratorInput,
+    create_image_analyzer_agent,
+    create_image_generator_agent,
 )
 
 
@@ -64,12 +70,15 @@ async def _generate_titles_task(
     """
     from app.utils.database import async_session_factory
 
+    logger.info(f"[TitleTask] 开始生成标题: task_id={task_id}")
+
     try:
         # 创建标题智能体
         agent = TitleAgent(use_mock=use_mock)
 
         # 定义 SSE 流式回调
         async def stream_callback(content: str):
+            logger.debug(f"[TitleTask] 发送 title_chunk: {content[:30]}...")
             await sse_manager.send_title_chunk(
                 task_id=task_id,
                 content=content,
@@ -93,6 +102,7 @@ async def _generate_titles_task(
 
             # 提取标题列表
             titles = [t.title for t in output.titles]
+            logger.info(f"[TitleTask] 解析到 {len(titles)} 个标题: {titles}")
 
             # 更新状态为 TITLE_READY
             await repo.update_status(
@@ -102,12 +112,18 @@ async def _generate_titles_task(
                 progress="20",
             )
 
+            # 确保事务提交
+            await db.commit()
+            logger.info(f"[TitleTask] 数据库事务已提交，状态更新为 TITLE_READY")
+
             # 发送标题完成事件
-            await sse_manager.send_title_complete(
+            logger.info(f"[TitleTask] 准备发送 title_complete 事件")
+            success = await sse_manager.send_title_complete(
                 task_id=task_id,
                 titles=titles,
                 progress=20,
             )
+            logger.info(f"[TitleTask] title_complete 发送结果: {success}")
 
             # 发送状态更新事件
             await sse_manager.send_status(
@@ -116,14 +132,17 @@ async def _generate_titles_task(
                 message="标题生成完成，请选择标题",
                 progress=20,
             )
+            logger.info(f"[TitleTask] 标题生成流程完成")
 
     except Exception as e:
+        logger.error(f"[TitleTask] 标题生成失败: {e}", exc_info=True)
         # 错误处理
         from app.utils.database import async_session_factory
 
         async with async_session_factory() as db:
             repo = TaskRepository(db)
             await repo.set_error(task_id, str(e))
+            await db.commit()
 
         # 发送错误事件
         await sse_manager.send_error(
@@ -195,14 +214,17 @@ async def _generate_content_task(
                     word_count=str(output.word_count),
                 )
 
-            # 更新状态为 CONTENT_GENERATED（暂时使用 OUTLINE_READY 表示正文完成）
-            # 注意：后续流程会触发配图生成，状态将变为 IMAGE_GENERATING
+            # 更新状态为 CONTENT_READY（正文完成，等待配图）
             await task_repo.update_status(
                 task_id=task_id,
-                status=TaskStatus.CONTENT_GENERATING,
+                status=TaskStatus.CONTENT_READY,
                 status_message="正文生成完成，准备生成配图",
                 progress="60",
             )
+
+            # 确保事务提交
+            await db.commit()
+            logger.info(f"[ContentTask] 数据库事务已提交，状态更新为 CONTENT_READY")
 
             # 发送正文完成事件
             await sse_manager.send_content_complete(
@@ -216,7 +238,7 @@ async def _generate_content_task(
             # 发送状态更新事件
             await sse_manager.send_status(
                 task_id=task_id,
-                status=TaskStatus.CONTENT_GENERATING.value,
+                status=TaskStatus.CONTENT_READY.value,
                 message="正文生成完成",
                 progress=60,
             )
@@ -233,6 +255,7 @@ async def _generate_content_task(
         async with async_session_factory() as db:
             repo = TaskRepository(db)
             await repo.set_error(task_id, str(e))
+            await db.commit()
 
         # 发送错误事件
         await sse_manager.send_error(
@@ -296,11 +319,19 @@ async def _generate_outline_task(
 
             # 更新文章大纲
             article = await article_repo.get_by_task_id(task_id)
+            logger.info(f"[OutlineTask] 查询文章记录: task_id={task_id}, article_exists={article is not None}")
             if article:
+                logger.info(f"[OutlineTask] 文章ID: {article.id}, 正在保存大纲...")
                 await article_repo.update_outline(
                     article_id=article.id,
                     outline=output.outline.model_dump(),
                 )
+                logger.info(f"[OutlineTask] 大纲已保存到数据库")
+                # 确保提交
+                await db.commit()
+                logger.info(f"[OutlineTask] 数据库事务已提交")
+            else:
+                logger.warning(f"[OutlineTask] 文章记录不存在，无法保存大纲: task_id={task_id}")
 
             # 更新状态为 OUTLINE_READY
             await task_repo.update_status(
@@ -309,6 +340,10 @@ async def _generate_outline_task(
                 status_message="大纲生成完成，请确认或编辑",
                 progress="40",
             )
+
+            # 确保事务提交
+            await db.commit()
+            logger.info(f"[OutlineTask] 数据库事务已提交，状态更新为 OUTLINE_READY")
 
             # 发送大纲完成事件
             await sse_manager.send_outline_complete(
@@ -332,12 +367,201 @@ async def _generate_outline_task(
         async with async_session_factory() as db:
             repo = TaskRepository(db)
             await repo.set_error(task_id, str(e))
+            await db.commit()
 
         # 发送错误事件
         await sse_manager.send_error(
             task_id=task_id,
             code="OUTLINE_GENERATION_ERROR",
             message="大纲生成失败",
+            details=str(e),
+        )
+
+
+# ============ 配图生成辅助函数 ============
+
+
+async def _generate_images_task(
+    task_id: str,
+    content: str,
+    use_mock: bool = False,
+):
+    """
+    后台任务：生成配图
+
+    流程：
+    1. ImageAnalyzerAgent 解析正文中的 IMAGE_PLACEHOLDER
+    2. ImageGeneratorAgent 并行执行图片任务
+    3. 更新文章正文（图文合并后的最终内容）
+    4. 完成任务
+
+    Args:
+        task_id: 任务 ID
+        content: 正文内容
+        use_mock: 是否使用 mock 实现
+    """
+    from app.utils.database import async_session_factory
+
+    logger.info(f"[ImageTask] 开始配图生成: task_id={task_id}, use_mock={use_mock}")
+    logger.info(f"[ImageTask] 正文内容长度: {len(content)} 字符")
+
+    # 调试：检查正文是否包含占位符
+    import re
+    placeholder_pattern = r'!\[IMAGE_PLACEHOLDER\]\([^)]+\)'
+    placeholders_found = re.findall(placeholder_pattern, content)
+    logger.info(f"[ImageTask] 正文中的占位符数量: {len(placeholders_found)}")
+    if placeholders_found:
+        logger.info(f"[ImageTask] 占位符示例: {placeholders_found[:3]}")
+
+    try:
+        # 1. 使用 ImageAnalyzerAgent 解析正文中的占位符
+        logger.info(f"[ImageTask] 创建 ImageAnalyzerAgent...")
+        analyzer_agent = create_image_analyzer_agent()
+
+        logger.info(f"[ImageTask] 创建 ImageAnalyzerInput...")
+        analyzer_input = ImageAnalyzerInput(content=content)
+
+        logger.info(f"[ImageTask] 执行 analyzer_agent.execute()...")
+        analyzer_output = await analyzer_agent.execute(analyzer_input)
+
+        logger.info(f"[ImageTask] 分析完成: totalCount={analyzer_output.totalCount}")
+
+        logger.info(
+            f"[ImageTask] 解析完成，发现 {analyzer_output.totalCount} 个图片任务"
+        )
+
+        # 2. 如果没有占位符，直接完成
+        if analyzer_output.totalCount == 0:
+            logger.info(f"[ImageTask] 正文无配图占位符，直接完成任务")
+
+            async with async_session_factory() as db:
+                article_repo = ArticleRepository(db)
+                task_repo = TaskRepository(db)
+
+                # 更新文章状态
+                article = await article_repo.get_by_task_id(task_id)
+                if article:
+                    # 将正文作为最终输出
+                    await article_repo.update_final_output(
+                        article_id=article.id,
+                        final_output=content,
+                    )
+
+                # 更新任务状态为完成
+                await task_repo.update_status(
+                    task_id=task_id,
+                    status=TaskStatus.COMPLETED,
+                    status_message="文章创作完成（无配图）",
+                    progress="100",
+                )
+
+                # 确保事务提交
+                await db.commit()
+                logger.info(f"[ImageTask] 数据库事务已提交（无配图情况）")
+
+                # 发送完成事件（携带最终内容）
+                await sse_manager.send_done(
+                    task_id=task_id,
+                    article_id=article.id if article else task_id,
+                    final_output=content,
+                )
+
+                # 发送状态更新
+                await sse_manager.send_status(
+                    task_id=task_id,
+                    status=TaskStatus.COMPLETED.value,
+                    message="文章创作完成",
+                    progress=100,
+                )
+
+            return
+
+        # 3. 使用 ImageGeneratorAgent 执行图片任务
+        logger.info(f"[ImageTask] 创建 ImageGeneratorAgent, use_mock={use_mock}...")
+        try:
+            generator_agent = create_image_generator_agent(use_mock=use_mock)
+            logger.info(f"[ImageTask] ImageGeneratorAgent 创建成功")
+        except Exception as agent_error:
+            logger.error(f"[ImageTask] 创建 ImageGeneratorAgent 失败: {agent_error}", exc_info=True)
+            raise
+
+        logger.info(f"[ImageTask] 创建 ImageGeneratorInput, tasks_count={len(analyzer_output.tasks)}...")
+        generator_input = ImageGeneratorInput(
+            tasks=analyzer_output.tasks,
+            content=content,
+            taskId=task_id,
+        )
+
+        logger.info(f"[ImageTask] 执行 generator_agent.execute()...")
+        generator_output = await generator_agent.execute(generator_input)
+
+        logger.info(
+            f"[ImageTask] 图片生成完成: total={generator_output.totalCount}, "
+            f"success={generator_output.successCount}, failed={generator_output.failedCount}"
+        )
+
+        # 4. 更新数据库
+        async with async_session_factory() as db:
+            article_repo = ArticleRepository(db)
+            task_repo = TaskRepository(db)
+
+            # 更新文章正文和最终输出
+            article = await article_repo.get_by_task_id(task_id)
+            if article:
+                await article_repo.update_content(
+                    article_id=article.id,
+                    content=generator_output.mergedContent,
+                    word_count=str(len(generator_output.mergedContent)),
+                )
+                await article_repo.update_final_output(
+                    article_id=article.id,
+                    final_output=generator_output.mergedContent,
+                )
+
+                # 更新任务状态为完成
+                await task_repo.update_status(
+                    task_id=task_id,
+                    status=TaskStatus.COMPLETED,
+                    status_message=f"文章创作完成，配图 {generator_output.successCount} 张",
+                    progress="100",
+                )
+
+                # 确保事务提交
+                await db.commit()
+                logger.info(f"[ImageTask] 数据库事务已提交，状态更新为 COMPLETED")
+
+                # 发送完成事件（携带合并后的最终内容）
+                await sse_manager.send_done(
+                    task_id=task_id,
+                    article_id=article.id,
+                    final_output=generator_output.mergedContent,
+                )
+
+                # 发送状态更新
+                await sse_manager.send_status(
+                    task_id=task_id,
+                    status=TaskStatus.COMPLETED.value,
+                    message="文章创作完成",
+                    progress=100,
+                )
+
+            logger.info(f"[ImageTask] 配图生成流程完成")
+
+    except Exception as e:
+        logger.error(f"[ImageTask] 配图生成失败: {e}", exc_info=True)
+
+        from app.utils.database import async_session_factory
+
+        async with async_session_factory() as db:
+            repo = TaskRepository(db)
+            await repo.set_error(task_id, str(e))
+            await db.commit()
+
+        # 发送错误事件
+        await sse_manager.send_error(
+            task_id=task_id,
+            code="IMAGE_GENERATION_ERROR",
+            message="配图生成失败",
             details=str(e),
         )
 
@@ -408,6 +632,10 @@ async def _optimize_outline_task(
                 progress="45",
             )
 
+            # 确保事务提交
+            await db.commit()
+            logger.info(f"[OptimizeOutlineTask] 数据库事务已提交，状态更新为 OUTLINE_READY")
+
             # 发送大纲完成事件
             await sse_manager.send_outline_complete(
                 task_id=task_id,
@@ -430,6 +658,7 @@ async def _optimize_outline_task(
         async with async_session_factory() as db:
             repo = TaskRepository(db)
             await repo.set_error(task_id, str(e))
+            await db.commit()
 
         # 发送错误事件
         await sse_manager.send_error(
@@ -794,11 +1023,22 @@ async def select_title(
     if not task:
         return ApiResponse.error(code="1200", message="任务不存在")
 
-    # 检查任务状态
-    if task.status != TaskStatus.TITLE_READY:
+    # 检查任务状态 - 放宽验证，允许 TITLE_GENERATING（可能数据库同步延迟）
+    # 如果状态是 TITLE_GENERATING 或 TITLE_READY，都允许选择标题
+    if task.status not in [TaskStatus.TITLE_READY, TaskStatus.TITLE_GENERATING]:
         return ApiResponse.error(
             code="1201",
-            message=f"任务状态不允许选择标题：当前状态={task.status.value}，需要 TITLE_READY",
+            message=f"任务状态不允许选择标题：当前状态={task.status.value}",
+        )
+
+    # 如果状态是 TITLE_GENERATING，自动更新为 TITLE_READY（处理数据库同步延迟）
+    if task.status == TaskStatus.TITLE_GENERATING:
+        logger.info(f"[SelectTitle] 任务状态为 TITLE_GENERATING，自动更新为 TITLE_READY: task_id={task_id}")
+        await task_repo.update_status(
+            task_id=task_id,
+            status=TaskStatus.TITLE_READY,
+            status_message="标题生成完成，请选择标题",
+            progress="20",
         )
 
     # 更新文章记录
@@ -855,11 +1095,21 @@ async def generate_outline(
     if not task:
         return ApiResponse.error(code="1200", message="任务不存在")
 
-    # 检查任务状态
-    if task.status != TaskStatus.TITLE_READY:
+    # 检查任务状态 - 放宽验证，处理数据库同步延迟
+    if task.status not in [TaskStatus.TITLE_READY, TaskStatus.TITLE_GENERATING]:
         return ApiResponse.error(
             code="1201",
-            message=f"任务状态不允许生成大纲：当前状态={task.status.value}，需要 TITLE_READY",
+            message=f"任务状态不允许生成大纲：当前状态={task.status.value}",
+        )
+
+    # 如果状态是 TITLE_GENERATING，自动更新为 TITLE_READY
+    if task.status == TaskStatus.TITLE_GENERATING:
+        logger.info(f"[GenerateOutline] 任务状态为 TITLE_GENERATING，自动更新为 TITLE_READY: task_id={task_id}")
+        await task_repo.update_status(
+            task_id=task_id,
+            status=TaskStatus.TITLE_READY,
+            status_message="标题生成完成，请选择标题",
+            progress="20",
         )
 
     # 获取文章记录，检查是否已选择标题
@@ -1078,15 +1328,31 @@ async def confirm_outline(
     if not task:
         return ApiResponse.error(code="1200", message="任务不存在")
 
-    # 检查任务状态
-    if task.status != TaskStatus.OUTLINE_READY:
+    # 检查任务状态 - 放宽验证，处理数据库同步延迟
+    if task.status not in [TaskStatus.OUTLINE_READY, TaskStatus.OUTLINE_GENERATING]:
         return ApiResponse.error(
             code="1201",
-            message=f"任务状态不允许生成正文：当前状态={task.status.value}，需要 OUTLINE_READY",
+            message=f"任务状态不允许生成正文：当前状态={task.status.value}",
+        )
+
+    # 如果状态是 OUTLINE_GENERATING，自动更新为 OUTLINE_READY
+    if task.status == TaskStatus.OUTLINE_GENERATING:
+        logger.info(f"[ConfirmOutline] 任务状态为 OUTLINE_GENERATING，自动更新为 OUTLINE_READY: task_id={task_id}")
+        await task_repo.update_status(
+            task_id=task_id,
+            status=TaskStatus.OUTLINE_READY,
+            status_message="大纲生成完成，请确认大纲",
+            progress="40",
         )
 
     # 获取文章记录
     article = await article_repo.get_by_task_id(task_id)
+    logger.info(f"[ConfirmOutline] 查询文章记录: task_id={task_id}, article_exists={article is not None}")
+    if article:
+        logger.info(f"[ConfirmOutline] 文章ID: {article.id}, selected_title={article.selected_title}, outline_exists={article.outline is not None}")
+        if article.outline:
+            logger.info(f"[ConfirmOutline] 大纲内容摘要: {str(article.outline)[:200]}...")
+
     if not article or not article.selected_title:
         return ApiResponse.error(
             code="1202",
@@ -1095,6 +1361,8 @@ async def confirm_outline(
 
     # 获取大纲（优先使用请求中的大纲，否则使用已有大纲）
     outline = request.outline if request and request.outline else article.outline
+    logger.info(f"[ConfirmOutline] 使用大纲来源: request_outline={request and request.outline is not None}, article_outline={article.outline is not None}")
+
     if not outline:
         return ApiResponse.error(
             code="1203",
@@ -1140,4 +1408,94 @@ async def confirm_outline(
             "message": "正文生成任务已启动，请通过 SSE 接收结果",
         },
         message="正文生成任务已启动",
+    )
+
+
+# ============ 配图生成接口 ============
+
+
+@router.post("/tasks/{task_id}/start-image-analysis", summary="触发配图生成")
+async def start_image_analysis(
+    task_id: str,
+    background_tasks: BackgroundTasks,
+    use_mock: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    触发配图分析和生成
+
+    正文生成完成后，启动配图流程：
+    1. ImageAnalyzerAgent 解析正文中的 IMAGE_PLACEHOLDER 占位符
+    2. ImageGeneratorAgent 并行执行图片任务
+    3. 图文合并，生成最终输出
+
+    - **task_id**: 任务唯一标识
+    - **use_mock**: 是否使用 mock 实现（测试用，默认 false）
+
+    SSE 事件序列：
+    - image_task_start: 图片任务开始，包含任务总数
+    - image_progress: 单张图片处理进度（多次）
+    - image_complete: 单张图片完成（多次）
+    - image_all_complete: 所有图片任务完成
+    - done: 文章创作完成
+
+    使用流程：
+    1. 正文生成完成后调用此接口
+    2. 通过 SSE 接收配图进度和结果
+    3. 收到 done 事件后可查看完整文章
+    """
+    task_repo = TaskRepository(db)
+    article_repo = ArticleRepository(db)
+
+    task = await task_repo.get(task_id)
+    if not task:
+        return ApiResponse.error(code="1200", message="任务不存在")
+
+    # 检查任务状态 - 正文完成后才能开始配图
+    if task.status != TaskStatus.CONTENT_READY:
+        return ApiResponse.error(
+            code="1201",
+            message=f"任务状态不允许生成配图：当前状态={task.status.value}，需要正文完成后才能开始配图",
+        )
+
+    # 获取文章记录和正文内容
+    article = await article_repo.get_by_task_id(task_id)
+    if not article or not article.content:
+        return ApiResponse.error(
+            code="1202",
+            message="正文不存在，请先生成正文",
+        )
+
+    # 更新状态为 IMAGE_GENERATING
+    await task_repo.update_status(
+        task_id=task_id,
+        status=TaskStatus.IMAGE_GENERATING,
+        status_message="正在生成配图...",
+        progress="65",
+    )
+
+    # 发送状态变更事件（如果有 SSE 连接）
+    await sse_manager.send_status(
+        task_id=task_id,
+        status=TaskStatus.IMAGE_GENERATING.value,
+        message="正在生成配图...",
+        progress=65,
+    )
+
+    # 启动后台任务
+    background_tasks.add_task(
+        _generate_images_task,
+        task_id,
+        article.content,
+        use_mock,
+    )
+
+    return ApiResponse.ok(
+        data={
+            "task_id": task_id,
+            "status": TaskStatus.IMAGE_GENERATING.value,
+            "stage": "image",
+            "message": "配图生成任务已启动，请通过 SSE 接收结果",
+        },
+        message="配图生成任务已启动",
     )

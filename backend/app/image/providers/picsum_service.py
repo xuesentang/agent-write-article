@@ -73,6 +73,7 @@ class PicsumService(BaseImageProvider):
         image_type: ImageType,
         width: int = 1200,
         height: int = 800,
+        context: Optional[str] = None,
     ) -> ImageFetchResult:
         """
         从 Picsum 获取随机图片
@@ -82,6 +83,7 @@ class PicsumService(BaseImageProvider):
             image_type: 图片类型
             width: 目标宽度
             height: 目标高度
+            context: 上下文内容（Picsum 不使用，保留接口兼容）
 
         Returns:
             ImageFetchResult: 获取结果（永不失败）
@@ -255,6 +257,7 @@ class MockPicsumService(BaseImageProvider):
         image_type: ImageType,
         width: int = 1200,
         height: int = 800,
+        context: Optional[str] = None,
     ) -> ImageFetchResult:
         await asyncio.sleep(0.05)
 

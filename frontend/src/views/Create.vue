@@ -26,7 +26,9 @@ import {
   generateTitles,
   selectTitle as apiSelectTitle,
   generateOutline,
+  optimizeOutline,
   confirmOutline,
+  startImageAnalysis,
   type OutlineSection,
 } from '@/api'
 
@@ -70,6 +72,7 @@ const {
   connect: connectSSE,
   disconnect: disconnectSSE,
   on: onSSEEvent,
+  onAny: onSSEAny,
 } = useSSE(() => sseUrl.value, {
   maxReconnectAttempts: 3,
   reconnectDelay: 1000,
@@ -83,19 +86,47 @@ const isOptimizing = ref(false) // 是否正在优化大纲
 // ============ SSE 事件处理 ============
 
 function setupSSEHandlers() {
+  console.log('[Create] 开始设置 SSE 事件处理器')
+
+  // 监听所有事件（调试）
+  onSSEAny((data) => {
+    console.log('[Create] 收到事件:', data.event, '| 状态:', taskStore.currentTask?.status)
+  })
+
   // 状态变更
   onSSEEvent(SSEEventType.STATUS, (data) => {
-    taskStore.updateStatus(data.data.status, data.data.message, data.progress)
+    console.log('[Create] 收到 STATUS 事件:', JSON.stringify(data, null, 2))
+    console.log('[Create] data.data:', data.data)
+    console.log('[Create] data.data.status:', data.data?.status)
+    console.log('[Create] data.data.message:', data.data?.message)
+    console.log('[Create] data.progress:', data.progress)
+    console.log('[Create] 当前 store 状态:', taskStore.currentTask?.status)
+    if (data.data && data.data.status) {
+      taskStore.updateStatus(data.data.status, data.data.message || '', data.progress)
+      console.log('[Create] 更新后 store 状态:', taskStore.currentTask?.status)
+    } else {
+      console.error('[Create] STATUS 事件数据格式错误，无法更新状态')
+    }
   })
 
   // 标题生成
-  onSSEEvent(SSEEventType.TITLE_CHUNK, (_data) => {
+  onSSEEvent(SSEEventType.TITLE_CHUNK, (data) => {
+    console.log('[Create] 收到 TITLE_CHUNK 事件:', data)
     // 可以在这里处理流式标题片段
   })
 
   onSSEEvent(SSEEventType.TITLE_COMPLETE, (data) => {
-    taskStore.setTitles(data.data.titles)
-    message.success('标题生成完成，请选择一个标题')
+    console.log('[Create] ===== 收到 TITLE_COMPLETE 事件 =====')
+    console.log('[Create] data:', JSON.stringify(data, null, 2))
+    console.log('[Create] titles:', data.data?.titles)
+    console.log('[Create] 当前状态（更新前）:', taskStore.currentTask?.status)
+    if (data.data && data.data.titles) {
+      taskStore.setTitles(data.data.titles)
+      console.log('[Create] 当前状态（更新后）:', taskStore.currentTask?.status)
+      message.success('标题生成完成，请选择一个标题')
+    } else {
+      console.error('[Create] TITLE_COMPLETE 事件数据格式错误:', data)
+    }
   })
 
   // 大纲生成
@@ -114,7 +145,9 @@ function setupSSEHandlers() {
   })
 
   onSSEEvent(SSEEventType.CONTENT_COMPLETE, (data) => {
-    taskStore.setContent(taskStore.currentTask?.content || '', data.data.word_count)
+    // 使用 SSE 事件中的完整内容（如果流式累积失败，则使用事件数据）
+    const content = data.data?.content || taskStore.currentTask?.content || ''
+    taskStore.setContent(content, data.data?.word_count || 0)
     message.success('正文创作完成')
   })
 
@@ -149,8 +182,12 @@ function setupSSEHandlers() {
     }
   })
 
-  onSSEEvent(SSEEventType.IMAGE_ALL_COMPLETE, () => {
+  onSSEEvent(SSEEventType.IMAGE_ALL_COMPLETE, (data) => {
     taskStore.setImageProgress(null)
+    // 接收合并后的最终内容并更新 store
+    if (data.data?.merged_content) {
+      taskStore.updateMergedContent(data.data.merged_content)
+    }
     message.success('配图生成完成')
   })
 
@@ -163,13 +200,18 @@ function setupSSEHandlers() {
 
   // 错误
   onSSEEvent(SSEEventType.ERROR, (data) => {
-    taskStore.setError(data.data.message || '生成过程中发生错误')
-    message.error(data.data.message || '生成失败')
+    console.log('[Create] 收到 ERROR 事件:', data)
+    // 错误事件数据结构: { event, data: { code, message, details }, progress, message }
+    const errorMessage = data.data?.message || data.message || '生成过程中发生错误'
+    const errorDetails = data.data?.details || ''
+    console.error('[Create] 错误详情:', errorMessage, errorDetails)
+    taskStore.setError(errorMessage)
+    message.error(errorMessage)
   })
 
   // 完成
   onSSEEvent(SSEEventType.DONE, (data) => {
-    taskStore.setCompleted(data.data.article_id)
+    taskStore.setCompleted(data.data.article_id, data.data.final_output)
     message.success('文章生成完成！')
   })
 }
@@ -242,9 +284,8 @@ async function handleOptimizeOutline() {
 
   isOptimizing.value = true
   try {
-    // 这里需要调用优化大纲的 API
-    // await optimizeOutline(taskStore.currentTask.id, { user_modifications: userModification.value })
-    message.success('大纲优化中...')
+    await optimizeOutline(taskStore.currentTask.id, { user_modifications: userModification.value })
+    // 不显示 success 消息，因为 SSE 会发送新的大纲
   } catch (error: any) {
     message.error(error.message || '优化大纲失败')
   } finally {
@@ -256,11 +297,30 @@ async function handleOptimizeOutline() {
 async function handleConfirmOutline() {
   if (!taskStore.currentTask) return
 
+  // 检查大纲是否存在
+  if (!taskStore.currentTask.outline) {
+    message.error('大纲不存在，请等待大纲生成完成')
+    return
+  }
+
   try {
-    await confirmOutline(taskStore.currentTask.id)
+    // 将大纲数据传递给后端，避免数据库同步延迟问题
+    await confirmOutline(taskStore.currentTask.id, { outline: taskStore.currentTask.outline })
     message.success('大纲确认成功，正在创作正文...')
   } catch (error: any) {
     message.error(error.message || '确认大纲失败')
+  }
+}
+
+// 开始配图生成
+async function handleStartImageAnalysis() {
+  if (!taskStore.currentTask) return
+
+  try {
+    await startImageAnalysis(taskStore.currentTask.id)
+    message.success('正在分析配图需求...')
+  } catch (error: any) {
+    message.error(error.message || '启动配图失败')
   }
 }
 
@@ -559,6 +619,14 @@ onUnmounted(() => {
               <span v-if="taskStore.currentTask.contentGenerating" class="cursor-blink" />
             </div>
           </div>
+
+          <!-- 正文完成后显示继续按钮 -->
+          <div v-if="!taskStore.currentTask.contentGenerating && taskStore.currentTask.content" class="action-bar">
+            <a-button type="primary" size="large" @click="handleStartImageAnalysis">
+              <template #icon><PictureOutlined /></template>
+              开始生成配图
+            </a-button>
+          </div>
         </a-card>
       </div>
 
@@ -619,6 +687,16 @@ onUnmounted(() => {
             </a-space>
           </template>
         </a-result>
+
+        <!-- 最终文章预览 -->
+        <div v-if="taskStore.currentTask?.finalOutput || taskStore.currentTask?.content" class="final-preview">
+          <a-card title="最终文章预览" class="final-card">
+            <div
+              class="markdown-content"
+              v-html="renderMarkdown(taskStore.currentTask.finalOutput || taskStore.currentTask.content || '')"
+            />
+          </a-card>
+        </div>
       </div>
 
       <!-- 错误状态 -->
@@ -981,6 +1059,47 @@ onUnmounted(() => {
 .action-footer {
   text-align: center;
   padding: 24px;
+}
+
+/* 最终预览区域 */
+.final-preview {
+  margin-top: 24px;
+}
+
+.final-card {
+  min-height: 200px;
+}
+
+.final-card :deep(.markdown-content) {
+  line-height: 1.75;
+  color: var(--text-primary);
+}
+
+.final-card :deep(.markdown-content img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+  margin: 16px 0;
+  box-shadow: var(--shadow-md);
+}
+
+.final-card :deep(.markdown-content h1),
+.final-card :deep(.markdown-content h2),
+.final-card :deep(.markdown-content h3),
+.final-card :deep(.markdown-content h4) {
+  font-weight: 600;
+  margin: 24px 0 16px 0;
+  color: var(--text-primary);
+}
+
+.final-card :deep(.markdown-content p) {
+  margin: 12px 0;
+}
+
+.final-card :deep(.markdown-content ul),
+.final-card :deep(.markdown-content ol) {
+  padding-left: 24px;
+  margin: 12px 0;
 }
 
 /* 响应式 */
