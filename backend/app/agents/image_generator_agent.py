@@ -158,8 +158,11 @@ class ImageGeneratorAgent(BaseAgent):
             input_data.content, results
         )
 
-        # 4. 发送全部完成事件（携带合并后的内容）
-        await self._send_all_complete_event(task_id, results, merged_content)
+        # 3.5 将 Markdown 转换为 HTML 富文本
+        merged_html = self._convert_markdown_to_html(merged_content)
+
+        # 4. 发送全部完成事件（携带合并后的内容和HTML）
+        await self._send_all_complete_event(task_id, results, merged_content, merged_html)
 
         # 5. 统计结果
         success_count = sum(1 for r in results if r.status == ImageTaskStatus.COMPLETED)
@@ -169,6 +172,7 @@ class ImageGeneratorAgent(BaseAgent):
         output = ImageGeneratorOutput(
             results=results,
             mergedContent=merged_content,
+            mergedHtml=merged_html,
             totalCount=len(results),
             successCount=success_count,
             failedCount=failed_count,
@@ -272,14 +276,15 @@ class ImageGeneratorAgent(BaseAgent):
             message=f"图片 {result.placeholderId} 已完成",
         )
 
-    async def _send_all_complete_event(self, task_id: str, results: List[ImageResult], merged_content: str = ""):
+    async def _send_all_complete_event(self, task_id: str, results: List[ImageResult], merged_content: str = "", merged_html: str = ""):
         """
         发送所有图片完成事件
 
         Args:
             task_id: 文章生成任务 ID
             results: 图片结果列表
-            merged_content: 图文合并后的最终正文
+            merged_content: 图文合并后的 Markdown 正文
+            merged_html: 图文合并后的 HTML 富文本
         """
         success_count = sum(1 for r in results if r.status == ImageTaskStatus.COMPLETED)
         failed_count = sum(1 for r in results if r.status == ImageTaskStatus.FAILED)
@@ -302,7 +307,8 @@ class ImageGeneratorAgent(BaseAgent):
                     }
                     for r in results
                 ],
-                "merged_content": merged_content,  # 携带合并后的正文内容
+                "merged_content": merged_content,
+                "merged_html": merged_html,
             },
             progress=80,  # 图片阶段完成进度
             message=f"图片生成完成: {success_count} 成功, {failed_count} 失败",
@@ -391,12 +397,10 @@ class ImageGeneratorAgent(BaseAgent):
 
         流程：
         1. 发送开始事件
-        2. 尝试从 preferredProviders 获取图片
-        3. 失败后降级到 fallbackProviders
-        4. 最终使用 Picsum 兜底（永不失败）
-        5. 上传 COS
-        6. 发送完成事件
-        7. 返回结果
+        2. 尝试从 preferredProviders（仅 Seedream）获取图片
+        3. 上传 COS
+        4. 发送完成事件
+        5. 返回结果（失败则返回空 URL）
 
         Args:
             task_id: 文章生成任务 ID
@@ -410,8 +414,7 @@ class ImageGeneratorAgent(BaseAgent):
             f"keywords={image_task.keywords}, type={image_task.imageType.value}"
         )
         logger.info(
-            f"[ImageGeneratorAgent] 首选服务: {image_task.preferredProviders}, "
-            f"备选服务: {image_task.fallbackProviders}"
+            f"[ImageGeneratorAgent] 首选服务: {image_task.preferredProviders}"
         )
 
         # 发送开始事件
@@ -427,7 +430,7 @@ class ImageGeneratorAgent(BaseAgent):
         failed_providers: List[ImageProvider] = []
         last_error: Optional[str] = None
 
-        # 尝试所有首选服务
+        # 尝试所有首选服务（仅 Seedream）
         for provider_name in image_task.preferredProviders:
             logger.info(f"[ImageGeneratorAgent] 尝试首选服务: {provider_name.value}")
             provider = self.strategy.get_provider(provider_name)
@@ -468,8 +471,8 @@ class ImageGeneratorAgent(BaseAgent):
                 fetch_result = await provider.fetch_image(
                     keywords=image_task.keywords,
                     image_type=image_task.imageType,
-                    width=1200,
-                    height=800,
+                    width=1920,
+                    height=1920,
                     context=image_task.context,
                 )
 
@@ -517,131 +520,10 @@ class ImageGeneratorAgent(BaseAgent):
                     f"获取失败: {e}", exc_info=True
                 )
 
-        # 首选服务全部失败，降级到 fallback
-        logger.info(f"[ImageGeneratorAgent] 首选服务全部失败，尝试备选服务...")
-        for provider_name in image_task.fallbackProviders:
-            if provider_name in failed_providers:
-                logger.info(f"[ImageGeneratorAgent] 跳过已失败的备选服务: {provider_name.value}")
-                continue
-
-            logger.info(f"[ImageGeneratorAgent] 尝试备选服务: {provider_name.value}")
-            provider = self.strategy.get_provider(provider_name)
-
-            if not provider or not provider.is_available():
-                logger.warning(f"[ImageGeneratorAgent] 备选服务 {provider_name.value} 不可用")
-                continue
-
-            await self._send_single_progress_event(
-                task_id=task_id,
-                image_task=image_task,
-                status="fallback",
-                provider=provider_name.value,
-                progress=50,
-            )
-
-            try:
-                logger.info(f"[ImageGeneratorAgent] 调用备选服务 {provider_name.value}...")
-                fetch_result = await provider.fetch_image(
-                    keywords=image_task.keywords,
-                    image_type=image_task.imageType,
-                    width=1200,
-                    height=800,
-                    context=image_task.context,
-                )
-
-                logger.info(
-                    f"[ImageGeneratorAgent] 备选服务 {provider_name.value} 返回: "
-                    f"success={fetch_result.success}"
-                )
-
-                if fetch_result.success:
-                    cos_result = await self.cos_uploader.upload_from_url(
-                        image_url=fetch_result.url,
-                        placeholder_id=image_task.placeholderId,
-                        task_id=image_task.taskId,
-                        source_provider=fetch_result.provider,
-                    )
-
-                    if cos_result.status == ImageTaskStatus.COMPLETED:
-                        await self._send_single_complete_event(
-                            task_id=task_id,
-                            result=cos_result,
-                            progress=100,
-                        )
-
-                        logger.info(f"[ImageGeneratorAgent] 任务 {image_task.placeholderId} 通过备选服务完成")
-                        return cos_result
-
-                    last_error = cos_result.errorMessage
-                    logger.warning(f"[ImageGeneratorAgent] 备选服务 COS 上传失败: {last_error}")
-
-            except Exception as e:
-                last_error = str(e)
-                logger.warning(
-                    f"[ImageGeneratorAgent] Fallback 服务 {provider_name.value} "
-                    f"失败: {e}", exc_info=True
-                )
-
-        # 所有服务都失败，强制使用 Picsum 兜底
-        logger.info(f"[ImageGeneratorAgent] 所有服务失败，尝试 Picsum 兜底...")
-        picsum = self.strategy.get_provider(ImageProvider.PICSUM)
-
-        if picsum and picsum.is_available():
-            logger.info(
-                f"[ImageGeneratorAgent] 强制使用 Picsum 兜底: "
-                f"{image_task.placeholderId}"
-            )
-
-            await self._send_single_progress_event(
-                task_id=task_id,
-                image_task=image_task,
-                status="fallback",
-                provider="picsum",
-                progress=80,
-            )
-
-            try:
-                fetch_result = await picsum.fetch_image(
-                    keywords=image_task.keywords,
-                    image_type=image_task.imageType,
-                    width=1200,
-                    height=800,
-                    context=image_task.context,
-                )
-
-                logger.info(f"[ImageGeneratorAgent] Picsum 返回: success={fetch_result.success}, url={fetch_result.url}")
-
-                cos_result = await self.cos_uploader.upload_from_url(
-                    image_url=fetch_result.url,
-                    placeholder_id=image_task.placeholderId,
-                    task_id=image_task.taskId,
-                    source_provider=ImageProvider.PICSUM,
-                )
-
-                logger.info(f"[ImageGeneratorAgent] Picsum 图片上传结果: status={cos_result.status.value}")
-
-                await self._send_single_complete_event(
-                    task_id=task_id,
-                    result=cos_result,
-                    progress=100,
-                )
-
-                logger.info(f"[ImageGeneratorAgent] 任务 {image_task.placeholderId} 通过 Picsum 完成")
-                return cos_result
-
-            except Exception as e:
-                # Picsum 也失败（理论上不应该）
-                last_error = str(e)
-                logger.error(
-                    f"[ImageGeneratorAgent] Picsum 兜底也失败: {e}", exc_info=True
-                )
-        else:
-            logger.error(f"[ImageGeneratorAgent] Picsum 服务不可用: picsum={picsum is not None}")
-
-        # 最终失败：返回空结果
+        # 最终失败：返回空结果（无兜底）
         logger.error(
             f"[ImageGeneratorAgent] 任务 {image_task.placeholderId} "
-            f"最终失败: {last_error}"
+            f"失败，Seedream 服务不可用或失败: {last_error}"
         )
 
         result = ImageResult(
@@ -649,9 +531,9 @@ class ImageGeneratorAgent(BaseAgent):
             placeholderId=image_task.placeholderId,
             url="",  # 空 URL，合并时会删除占位符
             cosKey="",
-            sourceProvider=ImageProvider.PICSUM,
+            sourceProvider=ImageProvider.SEEDREAM,
             status=ImageTaskStatus.FAILED,
-            errorMessage=last_error or "所有服务均失败",
+            errorMessage=last_error or "Seedream 服务失败",
         )
 
         await self._send_single_complete_event(
@@ -744,6 +626,41 @@ class ImageGeneratorAgent(BaseAgent):
         merged_content = re.sub(r'\n{3,}', '\n\n', merged_content)
 
         return merged_content
+
+    def _convert_markdown_to_html(self, markdown_content: str) -> str:
+        """
+        将 Markdown 内容转换为 HTML 富文本
+
+        Args:
+            markdown_content: Markdown 格式内容（图片占位符已替换）
+
+        Returns:
+            HTML 富文本内容
+        """
+        import markdown
+
+        extensions = [
+            'tables',
+            'fenced_code',
+            'codehilite',
+            'toc',
+            'nl2br',
+        ]
+
+        extension_configs = {
+            'codehilite': {
+                'css_class': 'highlight',
+                'linenums': False,
+            },
+        }
+
+        html_content = markdown.markdown(
+            markdown_content,
+            extensions=extensions,
+            extension_configs=extension_configs,
+        )
+
+        return html_content
 
 
 # ============ 工厂函数 ============

@@ -104,8 +104,8 @@ class SeedreamService(BaseImageProvider):
         self,
         keywords: list[str],
         image_type: ImageType,
-        width: int = 1200,
-        height: int = 800,
+        width: int = 2560,
+        height: int = 1440,
         context: Optional[str] = None,
     ) -> ImageFetchResult:
         """
@@ -262,11 +262,11 @@ class SeedreamService(BaseImageProvider):
         # 常见尺寸：1024x1024, 720x1280, 1280x720 等
         # 如果尺寸不是标准尺寸，调整为最接近的标准尺寸
         if width == height:
-            size = "1024x1024"
+            size = "1920x1920"
         elif width > height:
-            size = "1280x720"
+            size = "2560x1440"
         else:
-            size = "720x1280"
+            size = "1440x2560"
 
         # 尝试不同的模型名称格式
         # 火山引擎 ARK 平台的图片生成 API：
@@ -277,8 +277,8 @@ class SeedreamService(BaseImageProvider):
         if self.endpoint_id:
             model_names_to_try.append(self.endpoint_id)
         model_names_to_try.extend([
-            "Doubao-Seedream-5.0-lite",  # 优先使用 5.0-lite（速度更快，性价比更高）
-            "Doubao-Seedream-4.0",       # 次选 4.0（质量更好但较慢）
+            "doubao-seedream-5-0-lite-260128",  # 优先使用 5.0-lite（速度更快，性价比更高）
+            "doubao-seedream-4-0-250828",       # 次选 4.0（质量更好但较慢）
         ])
 
         for model_name in model_names_to_try:
@@ -340,7 +340,7 @@ class SeedreamService(BaseImageProvider):
                     error_text = response.text
                     logger.warning(
                         f"[SeedreamService] API 调用失败 (model={model_name}): "
-                        f"status={response.status_code}, error={error_text[:200]}"
+                        f"status={response.status_code}, error={error_text[:150]}"
                     )
 
             except Exception as e:
@@ -388,8 +388,8 @@ class MockSeedreamService(BaseImageProvider):
         self,
         keywords: list[str],
         image_type: ImageType,
-        width: int = 1200,
-        height: int = 800,
+        width: int = 1920,
+        height: int = 1920,
         context: Optional[str] = None,
     ) -> ImageFetchResult:
         await asyncio.sleep(0.3)

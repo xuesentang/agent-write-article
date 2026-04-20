@@ -205,7 +205,7 @@ export const useTaskStore = defineStore('task', () => {
   }
 
   // 设置完成状态
-  function setCompleted(articleId: string, finalOutput?: string) {
+  function setCompleted(articleId: string, finalOutput?: string, finalHtml?: string) {
     if (currentTask.value) {
       currentTask.value.status = 'COMPLETED'
       currentTask.value.statusMessage = '文章生成完成'
@@ -215,6 +215,9 @@ export const useTaskStore = defineStore('task', () => {
         currentTask.value.finalOutput = finalOutput
         // 同步更新 content，使前端能立即展示合并后的内容
         currentTask.value.content = finalOutput
+      }
+      if (finalHtml) {
+        currentTask.value.finalHtml = finalHtml
       }
       currentTask.value.contentGenerating = false
       currentTask.value.imageGenerating = false

@@ -128,6 +128,21 @@ class ArticleRepository(BaseRepository[Article]):
         """
         return await self.update(article_id, {"final_output": final_output})
 
+    async def update_final_html(
+        self, article_id: str, final_html: str
+    ) -> Optional[Article]:
+        """
+        更新最终 HTML 富文本内容
+
+        Args:
+            article_id: 文章 ID
+            final_html: HTML 富文本
+
+        Returns:
+            更新后的文章实例
+        """
+        return await self.update(article_id, {"final_html": final_html})
+
     async def search_by_title(self, keyword: str, limit: int = 10) -> List[Article]:
         """
         根据标题关键词搜索文章

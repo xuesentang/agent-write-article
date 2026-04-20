@@ -349,12 +349,12 @@ class SSEManager:
             message=message,
         )
 
-    async def send_done(self, task_id: str, article_id: str, final_output: Optional[str] = None) -> bool:
+    async def send_done(self, task_id: str, article_id: str, final_output: Optional[str] = None, final_html: Optional[str] = None) -> bool:
         """发送任务完成事件"""
         return await self.send_event(
             task_id=task_id,
             event_type=SSEEventType.DONE,
-            data=DoneEventData(article_id=article_id, final_output=final_output).model_dump(),
+            data=DoneEventData(article_id=article_id, final_output=final_output, final_html=final_html).model_dump(),
             progress=100,
             message="文章生成完成",
         )

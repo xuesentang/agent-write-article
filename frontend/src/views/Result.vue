@@ -79,16 +79,53 @@ async function handleExport() {
     const res = await exportArticle(article.value.id)
     const data = res.data
 
-    // 创建 Blob 并下载
-    const blob = new Blob([`# ${data.title}\n\n${data.content}`], { type: 'text/markdown' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${data.title}.md`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    if (data.format === 'html' && data.html) {
+      // 导出 HTML 文件
+      const fullHtml = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${data.title}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.8; color: #333; }
+    h1 { font-size: 28px; margin: 24px 0 16px; }
+    h2 { font-size: 24px; margin: 20px 0 12px; }
+    h3 { font-size: 20px; margin: 16px 0 8px; }
+    img { max-width: 100%; height: auto; border-radius: 8px; margin: 16px 0; display: block; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    p { margin: 12px 0; }
+    ul, ol { padding-left: 24px; }
+    blockquote { border-left: 4px solid #ddd; padding-left: 16px; color: #666; margin: 16px 0; }
+    code { background: #f5f5f5; padding: 2px 6px; border-radius: 3px; }
+    pre { background: #f5f5f5; padding: 16px; border-radius: 8px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>${data.title}</h1>
+  ${data.html}
+</body>
+</html>`
+      const blob = new Blob([fullHtml], { type: 'text/html' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${data.title}.html`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } else {
+      // 导出 Markdown
+      const blob = new Blob([`# ${data.title}\n\n${data.content}`], { type: 'text/markdown' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${data.title}.md`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    }
 
     message.success('文章已导出')
   } catch (err: any) {
@@ -213,7 +250,7 @@ onMounted(() => {
               </a-button>
               <a-button type="primary" @click="handleExport">
                 <template #icon><DownloadOutlined /></template>
-                导出 Markdown
+                导出文章
               </a-button>
               <a-dropdown>
                 <a-button>
@@ -263,7 +300,12 @@ onMounted(() => {
             </template>
 
             <div
-              v-if="article.final_output || article.content"
+              v-if="article.final_html"
+              class="rich-content"
+              v-html="article.final_html"
+            />
+            <div
+              v-else-if="article.final_output || article.content"
               class="markdown-content"
               v-html="renderMarkdown(article.final_output || article.content || '')"
             />
@@ -561,6 +603,65 @@ onMounted(() => {
   margin: 8px 0;
   font-size: 14px;
   color: var(--text-secondary);
+}
+
+/* HTML 富文本内容样式 */
+.content-main :deep(.rich-content) {
+  line-height: 1.8;
+  color: var(--text-primary);
+}
+
+.content-main :deep(.rich-content h1),
+.content-main :deep(.rich-content h2),
+.content-main :deep(.rich-content h3),
+.content-main :deep(.rich-content h4) {
+  font-weight: 600;
+  margin: 24px 0 16px 0;
+  color: var(--text-primary);
+}
+
+.content-main :deep(.rich-content h1) { font-size: 28px; }
+.content-main :deep(.rich-content h2) { font-size: 24px; }
+.content-main :deep(.rich-content h3) { font-size: 20px; }
+
+.content-main :deep(.rich-content p) {
+  margin: 12px 0;
+}
+
+.content-main :deep(.rich-content img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+  margin: 16px 0;
+  box-shadow: var(--shadow-md);
+  display: block;
+}
+
+.content-main :deep(.rich-content ul),
+.content-main :deep(.rich-content ol) {
+  padding-left: 24px;
+  margin: 12px 0;
+}
+
+.content-main :deep(.rich-content blockquote) {
+  border-left: 4px solid var(--primary-light);
+  padding-left: 16px;
+  color: var(--text-secondary);
+  margin: 16px 0;
+}
+
+.content-main :deep(.rich-content pre) {
+  background: #f5f5f5;
+  padding: 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.content-main :deep(.rich-content code) {
+  background: #f5f5f5;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.9em;
 }
 
 /* Markdown 内容中的图片样式（关键：确保图片可见） */

@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     PEXELS_API_KEY: Optional[str] = None
     ICONIFY_API_URL: str = "https://api.iconify.design"
     SEEDREAM_API_KEY: Optional[str] = None
-    SEEDREAM_BASE_URL: str = "https://api.seedream.ai/v1"
+    SEEDREAM_BASE_URL: str = "https://ark.cn-beijing.volces.com/api/v3"
     SEEDREAM_ENDPOINT_ID: Optional[str] = None
 
     # 前端 URL

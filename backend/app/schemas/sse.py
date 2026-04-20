@@ -199,4 +199,5 @@ class ImageAllCompleteEventData(BaseModel):
         default_factory=list,
         description="结果摘要列表"
     )
-    merged_content: Optional[str] = Field(None, description="图文合并后的最终正文")
+    merged_content: Optional[str] = Field(None, description="图文合并后的 Markdown 正文")
+    merged_html: Optional[str] = Field(None, description="图文合并后的 HTML 富文本")

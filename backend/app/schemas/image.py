@@ -333,7 +333,11 @@ class ImageGeneratorOutput(BaseModel):
     )
     mergedContent: str = Field(
         ...,
-        description="合并后的最终正文（图片已替换）"
+        description="合并后的最终正文（Markdown格式，图片已替换）"
+    )
+    mergedHtml: str = Field(
+        default="",
+        description="合并后的 HTML 富文本内容"
     )
     totalCount: int = Field(
         default=0,

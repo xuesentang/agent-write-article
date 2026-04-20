@@ -114,7 +114,8 @@ class ArticleExportResponse(BaseModel):
     """文章导出响应"""
 
     title: str = Field(..., description="文章标题")
-    content: str = Field(..., description="完整内容（Markdown 格式）")
+    content: str = Field(..., description="完整内容")
+    html: Optional[str] = Field(None, description="HTML 富文本内容")
     word_count: int = Field(..., description="总字数")
     images: List[Dict[str, Any]] = Field(..., description="配图信息")
-    export_format: str = Field(default="markdown", description="导出格式")
+    format: str = Field(default="markdown", description="导出格式")

@@ -52,6 +52,7 @@ async def get_article(
             content=article.content,
             images=[ImageInfo(**img) for img in (article.images or [])],
             final_output=article.final_output,
+            final_html=article.final_html,
             word_count=article.word_count,
             created_at=article.created_at,
             updated_at=article.updated_at,
@@ -128,6 +129,7 @@ async def get_article_by_task(
             content=article.content,
             images=[ImageInfo(**img) for img in (article.images or [])],
             final_output=article.final_output,
+            final_html=article.final_html,
             word_count=article.word_count,
             created_at=article.created_at,
             updated_at=article.updated_at,
@@ -240,12 +242,14 @@ async def delete_article(
 @router.get("/articles/{article_id}/export", summary="导出文章")
 async def export_article(
     article_id: str,
+    format: str = "html",
     db: AsyncSession = Depends(get_db),
 ):
     """
-    导出文章为 Markdown 格式
+    导出文章
 
     - **article_id**: 文章唯一标识
+    - **format**: 导出格式 (html/markdown)，默认 html
     """
     repo = ArticleRepository(db)
     article = await repo.get(article_id)
@@ -253,7 +257,18 @@ async def export_article(
     if not article:
         return ApiResponse.error(code="1300", message="文章不存在")
 
-    # 如果有最终合并内容，直接返回
+    if format == "html" and article.final_html:
+        return ApiResponse.ok(
+            data={
+                "title": article.selected_title,
+                "content": article.final_html,
+                "html": article.final_html,
+                "word_count": article.word_count,
+                "format": "html",
+            },
+        )
+
+    # 如果有最终合并内容，返回 Markdown
     if article.final_output:
         return ApiResponse.ok(
             data={

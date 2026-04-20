@@ -188,6 +188,10 @@ function setupSSEHandlers() {
     if (data.data?.merged_content) {
       taskStore.updateMergedContent(data.data.merged_content)
     }
+    // 接收 HTML 富文本
+    if (data.data?.merged_html) {
+      taskStore.updateMergedHtml(data.data.merged_html)
+    }
     message.success('配图生成完成')
   })
 
@@ -211,7 +215,7 @@ function setupSSEHandlers() {
 
   // 完成
   onSSEEvent(SSEEventType.DONE, (data) => {
-    taskStore.setCompleted(data.data.article_id, data.data.final_output)
+    taskStore.setCompleted(data.data.article_id, data.data.final_output, data.data.final_html)
     message.success('文章生成完成！')
   })
 }
@@ -689,9 +693,16 @@ onUnmounted(() => {
         </a-result>
 
         <!-- 最终文章预览 -->
-        <div v-if="taskStore.currentTask?.finalOutput || taskStore.currentTask?.content" class="final-preview">
+        <div v-if="taskStore.currentTask?.finalHtml || taskStore.currentTask?.finalOutput || taskStore.currentTask?.content" class="final-preview">
           <a-card title="最终文章预览" class="final-card">
+            <!-- 优先展示 HTML 富文本 -->
             <div
+              v-if="taskStore.currentTask.finalHtml"
+              class="rich-content"
+              v-html="taskStore.currentTask.finalHtml"
+            />
+            <div
+              v-else
               class="markdown-content"
               v-html="renderMarkdown(taskStore.currentTask.finalOutput || taskStore.currentTask.content || '')"
             />
@@ -1068,6 +1079,64 @@ onUnmounted(() => {
 
 .final-card {
   min-height: 200px;
+}
+
+.final-card :deep(.rich-content) {
+  line-height: 1.75;
+  color: var(--text-primary);
+}
+
+.final-card :deep(.rich-content h1),
+.final-card :deep(.rich-content h2),
+.final-card :deep(.rich-content h3),
+.final-card :deep(.rich-content h4) {
+  font-weight: 600;
+  margin: 24px 0 16px 0;
+  color: var(--text-primary);
+}
+
+.final-card :deep(.rich-content h1) { font-size: 28px; }
+.final-card :deep(.rich-content h2) { font-size: 24px; }
+.final-card :deep(.rich-content h3) { font-size: 20px; }
+
+.final-card :deep(.rich-content p) {
+  margin: 12px 0;
+}
+
+.final-card :deep(.rich-content img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+  margin: 16px 0;
+  box-shadow: var(--shadow-md);
+  display: block;
+}
+
+.final-card :deep(.rich-content ul),
+.final-card :deep(.rich-content ol) {
+  padding-left: 24px;
+  margin: 12px 0;
+}
+
+.final-card :deep(.rich-content blockquote) {
+  border-left: 4px solid var(--primary-light);
+  padding-left: 16px;
+  color: var(--text-secondary);
+  margin: 16px 0;
+}
+
+.final-card :deep(.rich-content pre) {
+  background: #f5f5f5;
+  padding: 16px;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.final-card :deep(.rich-content code) {
+  background: #f5f5f5;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.9em;
 }
 
 .final-card :deep(.markdown-content) {

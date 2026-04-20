@@ -44,6 +44,7 @@ async def init_db():
 
     创建所有表结构。SQLite 会自动创建数据库文件。
     使用 WAL 模式提高并发性能。
+    自动检测并添加新字段（兼容已有数据库）。
     """
     async with engine.begin() as conn:
         # 设置 SQLite WAL 模式（写前日志），提高并发性能
@@ -55,6 +56,18 @@ async def init_db():
 
         # 创建所有表
         await conn.run_sync(Base.metadata.create_all)
+
+        # 自动迁移：检测并添加 final_html 字段
+        try:
+            result = await conn.execute(text("PRAGMA table_info(articles)"))
+            columns = [row[1] for row in result.fetchall()]
+            if 'final_html' not in columns:
+                await conn.execute(text(
+                    "ALTER TABLE articles ADD COLUMN final_html TEXT"
+                ))
+                print("✅ 已添加 final_html 字段到 articles 表")
+        except Exception as e:
+            print(f"⚠️ 自动迁移 final_html 字段时出错（可能字段已存在）: {e}")
 
     print("✅ 数据库初始化完成")
 

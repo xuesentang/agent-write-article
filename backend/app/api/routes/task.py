@@ -535,6 +535,7 @@ async def _generate_images_task(
                     task_id=task_id,
                     article_id=article.id,
                     final_output=generator_output.mergedContent,
+                    final_html=generator_output.mergedHtml,
                 )
 
                 # 发送状态更新

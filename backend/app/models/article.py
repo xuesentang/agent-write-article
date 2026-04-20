@@ -114,7 +114,14 @@ class Article(Base):
     final_output = Column(
         Text,
         nullable=True,
-        comment="正文和配图合并后的完整文章内容，可直接导出",
+        comment="正文和配图合并后的完整文章内容（Markdown格式），可直接导出",
+    )
+
+    # 最终合并的 HTML 富文本内容
+    final_html = Column(
+        Text,
+        nullable=True,
+        comment="正文和配图合并后的 HTML 富文本内容，可直接用于展示和导出",
     )
 
     # 文章字数统计

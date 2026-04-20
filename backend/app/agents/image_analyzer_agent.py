@@ -388,7 +388,7 @@ class ImageAnalyzerAgent(BaseAgent):
         """
         根据图片类型选择服务提供商
 
-        简化为仅使用 Seedream 生成，Picsum 兜底
+        仅使用 Seedream 生成，无兜底服务
 
         Args:
             image_type: 图片类型
@@ -396,10 +396,10 @@ class ImageAnalyzerAgent(BaseAgent):
         Returns:
             (首选提供商列表, 备选提供商列表)
         """
-        # 所有类型统一：Seedream 优先，Picsum 兜底
+        # 仅使用 Seedream，无 fallback
         return (
             [ImageProvider.SEEDREAM],
-            [ImageProvider.PICSUM]
+            []  # 无 fallback
         )
 
     def _generate_description(self, keywords: List[str], position: int) -> str:

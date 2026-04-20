@@ -101,18 +101,11 @@ class ImageServiceStrategy:
             选中的服务提供商实例
 
         决策流程：
-        1. 检查 imageType 限制（Iconify 仅限 icon/decorative）
-        2. 从 preferredProviders 中选择（排除已失败的）
-        3. 检查服务可用性
-        4. 如果首选都不可用，降级到 fallbackProviders
+        1. 从 preferredProviders 中选择（排除已失败的）
+        2. 检查服务可用性
+        3. 无 fallback，失败直接返回 None
         """
         exclude_failed = exclude_failed or []
-
-        # 硬性规则：Iconify 仅限 icon/decorative
-        if task.imageType in [ImageType.PHOTO, ImageType.ILLUSTRATION, ImageType.DIAGRAM]:
-            # 正文主图相关类型，排除 Iconify
-            if ImageProvider.ICONIFY not in exclude_failed:
-                exclude_failed.append(ImageProvider.ICONIFY)
 
         # 首选服务列表（排除已失败的）
         preferred = [
@@ -124,37 +117,13 @@ class ImageServiceStrategy:
         for provider_name in preferred:
             provider = self._providers.get(provider_name)
             if provider and provider.is_available():
-                # 再次检查类型支持
+                # 检查类型支持
                 if provider.supports_image_type(task.imageType):
                     logger.info(
                         f"[ImageServiceStrategy] 为任务 {task.placeholderId} "
-                        f"选择首选服务: {provider_name.value}"
+                        f"选择服务: {provider_name.value}"
                     )
                     return provider
-
-        # 首选服务都不可用，降级到 fallback
-        fallback = [
-            p for p in task.fallbackProviders
-            if p not in exclude_failed
-        ]
-
-        for provider_name in fallback:
-            provider = self._providers.get(provider_name)
-            if provider and provider.is_available():
-                logger.info(
-                    f"[ImageServiceStrategy] 为任务 {task.placeholderId} "
-                    f"降级到备选服务: {provider_name.value}"
-                )
-                return provider
-
-        # 最后兜底：Picsum（如果注册了）
-        picsum = self._providers.get(ImageProvider.PICSUM)
-        if picsum and picsum.is_available():
-            logger.warning(
-                f"[ImageServiceStrategy] 为任务 {task.placeholderId} "
-                f"强制使用 Picsum 兜底"
-            )
-            return picsum
 
         # 无可用服务
         logger.error(
@@ -181,9 +150,7 @@ class ImageServiceStrategy:
         重试流程：
         1. 选择首选服务，尝试获取
         2. 失败后记录失败服务，选择下一个首选
-        3. 首选全部失败后，降级到 fallback
-        4. fallback 全部失败后，强制 Picsum
-        5. Picsum 也失败（理论上不会），返回错误结果
+        3. 所有尝试失败后返回错误结果（无兜底）
         """
         failed_providers: list[ImageProvider] = []
         last_error: Optional[str] = None
@@ -229,14 +196,14 @@ class ImageServiceStrategy:
                     f"获取异常 (retry {retry}): {e}"
                 )
 
-        # 所有尝试都失败，返回错误结果
+        # 所有尝试都失败，返回错误结果（无兜底）
         return ImageFetchResult(
             url="",
-            provider=ImageProvider.PICSUM,  # 标记为兜底
+            provider=ImageProvider.SEEDREAM,
             width=1200,
             height=800,
             success=False,
-            error=f"所有服务均失败: {last_error}"
+            error=f"Seedream 服务失败: {last_error}"
         )
 
     def get_available_providers(self) -> list[ImageProvider]:

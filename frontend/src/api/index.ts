@@ -117,6 +117,7 @@ export interface ArticleResponse {
   content?: string
   images?: ImageInfo[]
   final_output?: string
+  final_html?: string
   word_count?: string
   created_at: string
   updated_at: string
