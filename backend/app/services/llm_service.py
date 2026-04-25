@@ -353,6 +353,7 @@ class RealLLMService(LLMServiceBase):
         self.api_key = config["api_key"]
         self.base_url = config["base_url"]
         self.model = config["model"]
+        self.enable_search = config.get("enable_search", False)
 
         if not self.api_key:
             raise ValueError(f"LLM API Key 未配置: {self.provider}")
@@ -400,6 +401,16 @@ class RealLLMService(LLMServiceBase):
                         max_tokens=max_tokens,
                         stream=True,
                     )
+                    create_kwargs = {
+                        "model": self.model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                        "stream": True,
+                    }
+                    if self.enable_search:
+                        create_kwargs["extra_body"] = {"enable_search": True}
+                    stream = await self.client.chat.completions.create(**create_kwargs)
 
                     async for chunk in stream:
                         if chunk.choices[0].delta.content:

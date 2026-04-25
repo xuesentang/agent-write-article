@@ -196,14 +196,14 @@ class ImageServiceStrategy:
                     f"获取异常 (retry {retry}): {e}"
                 )
 
-        # 所有尝试都失败，返回错误结果（无兜底）
+        # 所有尝试都失败，返回错误结果
         return ImageFetchResult(
             url="",
-            provider=ImageProvider.SEEDREAM,
+            provider=ImageProvider.PICSUM,  # 标记为兜底
             width=1200,
             height=800,
             success=False,
-            error=f"Seedream 服务失败: {last_error}"
+            error=f"所有图片服务失败: {last_error}"
         )
 
     def get_available_providers(self) -> list[ImageProvider]:

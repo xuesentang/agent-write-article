@@ -430,7 +430,7 @@ class ImageGeneratorAgent(BaseAgent):
         failed_providers: List[ImageProvider] = []
         last_error: Optional[str] = None
 
-        # 尝试所有首选服务（仅 Seedream）
+        # 尝试所有首选服务
         for provider_name in image_task.preferredProviders:
             logger.info(f"[ImageGeneratorAgent] 尝试首选服务: {provider_name.value}")
             provider = self.strategy.get_provider(provider_name)
@@ -520,10 +520,96 @@ class ImageGeneratorAgent(BaseAgent):
                     f"获取失败: {e}", exc_info=True
                 )
 
-        # 最终失败：返回空结果（无兜底）
+        # 尝试所有备选服务
+        for provider_name in image_task.fallbackProviders:
+            logger.info(f"[ImageGeneratorAgent] 尝试备选服务: {provider_name.value}")
+            provider = self.strategy.get_provider(provider_name)
+
+            if not provider:
+                logger.warning(f"[ImageGeneratorAgent] 服务 {provider_name.value} 未注册")
+                continue
+
+            # 检查服务可用性
+            if not provider.is_available():
+                logger.warning(
+                    f"[ImageGeneratorAgent] 服务 {provider_name.value} 不可用"
+                )
+                continue
+
+            # 检查类型支持
+            if not provider.supports_image_type(image_task.imageType):
+                logger.warning(
+                    f"[ImageGeneratorAgent] 服务 {provider_name.value} "
+                    f"不支持类型 {image_task.imageType.value}"
+                )
+                continue
+
+            # 发送进度事件
+            await self._send_single_progress_event(
+                task_id=task_id,
+                image_task=image_task,
+                status="generating",
+                provider=provider_name.value,
+                progress=10,
+            )
+
+            try:
+                logger.info(f"[ImageGeneratorAgent] 调用 {provider_name.value} 获取图片...")
+                # 获取图片（传递上下文内容用于语义增强）
+                fetch_result = await provider.fetch_image(
+                    keywords=image_task.keywords,
+                    image_type=image_task.imageType,
+                    width=1920,
+                    height=1920,
+                    context=image_task.context,
+                )
+
+                logger.info(
+                    f"[ImageGeneratorAgent] {provider_name.value} 返回: "
+                    f"success={fetch_result.success}, url={fetch_result.url[:50] if fetch_result.url else 'None'}..."
+                )
+
+                if fetch_result.success:
+                    logger.info(f"[ImageGeneratorAgent] 上传图片到 COS...")
+                    # 上传 COS
+                    cos_result = await self.cos_uploader.upload_from_url(
+                        image_url=fetch_result.url,
+                        placeholder_id=image_task.placeholderId,
+                        task_id=image_task.taskId,
+                        source_provider=fetch_result.provider,
+                    )
+
+                    logger.info(
+                        f"[ImageGeneratorAgent] COS 上传结果: status={cos_result.status.value}, "
+                        f"url={cos_result.url[:50] if cos_result.url else 'None'}..."
+                    )
+
+                    if cos_result.status == ImageTaskStatus.COMPLETED:
+                        # 发送完成事件
+                        await self._send_single_complete_event(
+                            task_id=task_id,
+                            result=cos_result,
+                            progress=100,
+                        )
+
+                        logger.info(f"[ImageGeneratorAgent] 任务 {image_task.placeholderId} 完成")
+                        return cos_result
+
+                    # 上传失败，继续尝试下一个
+                    last_error = cos_result.errorMessage
+                    logger.warning(f"[ImageGeneratorAgent] COS 上传失败: {last_error}")
+
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(
+                    f"[ImageGeneratorAgent] 服务 {provider_name.value} "
+                    f"获取失败: {e}", exc_info=True
+                )
+
+        # 最终失败：返回空结果
         logger.error(
             f"[ImageGeneratorAgent] 任务 {image_task.placeholderId} "
-            f"失败，Seedream 服务不可用或失败: {last_error}"
+            f"失败，所有服务均不可用或失败: {last_error}"
         )
 
         result = ImageResult(
@@ -531,9 +617,9 @@ class ImageGeneratorAgent(BaseAgent):
             placeholderId=image_task.placeholderId,
             url="",  # 空 URL，合并时会删除占位符
             cosKey="",
-            sourceProvider=ImageProvider.SEEDREAM,
+            sourceProvider=ImageProvider.PICSUM,  # 标记为兜底
             status=ImageTaskStatus.FAILED,
-            errorMessage=last_error or "Seedream 服务失败",
+            errorMessage=last_error or "所有图片服务均失败",
         )
 
         await self._send_single_complete_event(

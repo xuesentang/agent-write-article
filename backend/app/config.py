@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     QIANWEN_API_KEY: Optional[str] = None
     QIANWEN_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     QIANWEN_MODEL: str = "qwen-plus"
+    QIANWEN_ENABLE_SEARCH: bool = True
 
     # 默认 LLM
     DEFAULT_LLM_PROVIDER: str = "deepseek"
@@ -77,16 +78,19 @@ class Settings(BaseSettings):
                 "api_key": self.DEEPSEEK_API_KEY,
                 "base_url": self.DEEPSEEK_BASE_URL,
                 "model": self.DEEPSEEK_MODEL,
+                "enable_search": False,
             },
             "zhipu": {
                 "api_key": self.ZHIPU_API_KEY,
                 "base_url": self.ZHIPU_BASE_URL,
                 "model": self.ZHIPU_MODEL,
+                "enable_search": False,
             },
             "qianwen": {
                 "api_key": self.QIANWEN_API_KEY,
                 "base_url": self.QIANWEN_BASE_URL,
                 "model": self.QIANWEN_MODEL,
+                "enable_search": self.QIANWEN_ENABLE_SEARCH,
             },
         }
 

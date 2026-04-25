@@ -388,7 +388,11 @@ class ImageAnalyzerAgent(BaseAgent):
         """
         根据图片类型选择服务提供商
 
-        仅使用 Seedream 生成，无兜底服务
+        策略：
+        - 图标类型：优先使用 Iconify（免费）
+        - 照片类型：优先使用 Pexels（免费）
+        - 图表/插画类型：使用 Seedream（AI 生成）
+        - 所有类型：Picsum 作为最终兜底
 
         Args:
             image_type: 图片类型
@@ -396,11 +400,24 @@ class ImageAnalyzerAgent(BaseAgent):
         Returns:
             (首选提供商列表, 备选提供商列表)
         """
-        # 仅使用 Seedream，无 fallback
-        return (
-            [ImageProvider.SEEDREAM],
-            []  # 无 fallback
-        )
+        if image_type == ImageType.ICON:
+            # 图标类型：优先 Iconify，然后 Seedream，最后 Picsum
+            return (
+                [ImageProvider.ICONIFY, ImageProvider.SEEDREAM],
+                [ImageProvider.PICSUM]
+            )
+        elif image_type == ImageType.PHOTO:
+            # 照片类型：优先 Pexels，然后 Seedream，最后 Picsum
+            return (
+                [ImageProvider.PEXELS, ImageProvider.SEEDREAM],
+                [ImageProvider.PICSUM]
+            )
+        else:
+            # 图表和插画类型：使用 Seedream，然后 Picsum
+            return (
+                [ImageProvider.SEEDREAM],
+                [ImageProvider.PICSUM]
+            )
 
     def _generate_description(self, keywords: List[str], position: int) -> str:
         """
